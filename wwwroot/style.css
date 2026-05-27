@@ -1,0 +1,321 @@
+:root {
+	--wc-ink: #0f172a;
+	--wc-slate: #334155;
+	--wc-coral: #ef4444;
+	--wc-teal: #0f766e;
+	--wc-gold: #f59e0b;
+	--wc-sky: #0ea5e9;
+	--wc-surface: rgba(255, 255, 255, 0.9);
+	--wc-surface-strong: #ffffff;
+	--wc-outline: rgba(15, 23, 42, 0.12);
+	--wc-shadow: 0 18px 44px rgba(2, 6, 23, 0.16);
+}
+
+* {
+	box-sizing: border-box;
+}
+
+body {
+	margin: 0;
+	font-family: "Manrope", sans-serif;
+	color: var(--wc-ink);
+	background:
+		radial-gradient(circle at 12% 14%, rgba(14, 165, 233, 0.2), transparent 42%),
+		radial-gradient(circle at 90% 4%, rgba(245, 158, 11, 0.24), transparent 34%),
+		linear-gradient(150deg, #f7fafc, #eff6ff 35%, #fef3c7 120%);
+	min-height: 100vh;
+}
+
+.wc-navbar {
+	background: linear-gradient(100deg, #0f172a, #1e293b 52%, #0f766e);
+	border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+	box-shadow: 0 10px 28px rgba(2, 6, 23, 0.25);
+}
+
+.navbar-brand {
+	display: flex;
+	align-items: center;
+	color: #fff;
+	margin-right: 0;
+}
+
+.brand-ball {
+	width: 36px;
+	height: 36px;
+	border-radius: 999px;
+	display: grid;
+	place-items: center;
+	color: #fff;
+	background: linear-gradient(140deg, var(--wc-coral), var(--wc-gold));
+	box-shadow: 0 4px 18px rgba(239, 68, 68, 0.4);
+}
+
+.brand-title {
+	font-family: "Bebas Neue", sans-serif;
+	letter-spacing: 1px;
+	font-size: 1.5rem;
+	line-height: 1;
+}
+
+.wc-user-badge {
+	color: #e2e8f0;
+	font-weight: 700;
+	border: 1px solid rgba(226, 232, 240, 0.35);
+	border-radius: 999px;
+	padding: 6px 12px;
+}
+
+.wc-hero {
+	position: relative;
+	border-radius: 26px;
+	overflow: hidden;
+	box-shadow: var(--wc-shadow);
+	background-image: url("https://images.unsplash.com/photo-1543357480-c60d40007a3f?auto=format&fit=crop&w=1800&q=80");
+	background-size: cover;
+	background-position: center;
+	animation: revealUp 0.8s ease both;
+}
+
+.wc-hero-overlay {
+	position: absolute;
+	inset: 0;
+	background:
+		linear-gradient(118deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.58) 42%, rgba(15, 118, 110, 0.6)),
+		repeating-linear-gradient(120deg, rgba(255, 255, 255, 0.05) 0 2px, transparent 2px 12px);
+}
+
+.wc-hero-content {
+	position: relative;
+	z-index: 1;
+	padding: 2.4rem;
+	color: #f8fafc;
+}
+
+.hero-kicker {
+	margin: 0;
+	font-size: 0.88rem;
+	font-weight: 800;
+	letter-spacing: 1.4px;
+	color: #fcd34d;
+}
+
+.hero-title {
+	margin: 0.55rem 0 0;
+	font-family: "Bebas Neue", sans-serif;
+	font-size: clamp(2rem, 6.2vw, 3.5rem);
+	line-height: 1;
+	letter-spacing: 0.6px;
+}
+
+.hero-subtitle {
+	margin: 0.9rem 0 0;
+	max-width: 62ch;
+	color: #e2e8f0;
+}
+
+.hero-badges {
+	margin-top: 1.15rem;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+}
+
+.hero-badges span {
+	border: 1px solid rgba(255, 255, 255, 0.35);
+	background: rgba(15, 23, 42, 0.35);
+	border-radius: 999px;
+	padding: 7px 12px;
+	font-size: 0.88rem;
+	font-weight: 700;
+}
+
+.wc-countdown {
+	margin-top: 1rem;
+	display: grid;
+	grid-template-columns: repeat(4, minmax(84px, 1fr));
+	gap: 10px;
+	max-width: 540px;
+}
+
+.countdown-item {
+	background: rgba(15, 23, 42, 0.5);
+	border: 1px solid rgba(255, 255, 255, 0.24);
+	border-radius: 14px;
+	padding: 10px 8px;
+	text-align: center;
+}
+
+.countdown-item span {
+	display: block;
+	font-size: 1.45rem;
+	line-height: 1.1;
+	font-weight: 800;
+	color: #ffffff;
+}
+
+.countdown-item small {
+	font-size: 0.75rem;
+	letter-spacing: 0.6px;
+	text-transform: uppercase;
+	color: #bfdbfe;
+}
+
+.countdown-note {
+	margin: 0.8rem 0 0;
+	color: #dbeafe;
+	font-size: 0.9rem;
+	font-weight: 600;
+}
+
+.wc-card {
+	border: 0;
+	border-radius: 18px;
+	background: var(--wc-surface);
+	backdrop-filter: blur(3px);
+	box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+}
+
+.wc-login-card {
+	border: 1px solid rgba(255, 255, 255, 0.55);
+	animation: revealUp 0.95s ease both;
+}
+
+.wc-primary-btn {
+	border: 0;
+	font-weight: 800;
+	background: linear-gradient(110deg, var(--wc-coral), #fb7185);
+	box-shadow: 0 10px 20px rgba(239, 68, 68, 0.25);
+}
+
+.wc-primary-btn:hover,
+.wc-primary-btn:focus {
+	background: linear-gradient(110deg, #dc2626, #f43f5e);
+}
+
+.score-box {
+	background: linear-gradient(120deg, rgba(14, 165, 233, 0.12), rgba(15, 118, 110, 0.09));
+	border: 1px solid rgba(14, 165, 233, 0.25);
+	border-radius: 12px;
+	padding: 10px 12px;
+	margin-bottom: 8px;
+}
+
+.group-row {
+	background: linear-gradient(90deg, rgba(15, 118, 110, 0.2), rgba(14, 165, 233, 0.12));
+	font-weight: 800;
+	letter-spacing: 0.4px;
+}
+
+.score-input {
+	width: 68px;
+	display: inline-block;
+}
+
+.team-input {
+	min-width: 150px;
+}
+
+.admin-row {
+	border-bottom: 1px solid rgba(100, 116, 139, 0.2);
+	padding: 10px 0;
+}
+
+.badge-result {
+	min-width: 76px;
+	border-radius: 999px;
+}
+
+.team-flag {
+	width: 24px;
+	height: 18px;
+	object-fit: cover;
+	border-radius: 3px;
+	border: 1px solid rgba(100, 116, 139, 0.35);
+	margin-top: -2px;
+}
+
+.leaderboard-gold td {
+	background: linear-gradient(90deg, rgba(245, 158, 11, 0.25), rgba(250, 204, 21, 0.14));
+	font-weight: 800;
+}
+
+.leaderboard-silver td {
+	background: linear-gradient(90deg, rgba(148, 163, 184, 0.24), rgba(203, 213, 225, 0.12));
+	font-weight: 700;
+}
+
+.leaderboard-bronze td {
+	background: linear-gradient(90deg, rgba(251, 146, 60, 0.24), rgba(253, 186, 116, 0.12));
+	font-weight: 700;
+}
+
+.table {
+	--bs-table-bg: transparent;
+}
+
+.table thead th {
+	border-bottom-width: 1px;
+	color: var(--wc-slate);
+	font-weight: 800;
+}
+
+.table tbody td {
+	border-color: rgba(100, 116, 139, 0.22);
+}
+
+.btn-outline-secondary,
+.btn-outline-success,
+.btn-outline-danger {
+	font-weight: 700;
+}
+
+.form-control,
+.form-select {
+	border-color: var(--wc-outline);
+}
+
+.form-control:focus,
+.form-select:focus {
+	border-color: var(--wc-sky);
+	box-shadow: 0 0 0 0.2rem rgba(14, 165, 233, 0.2);
+}
+
+@keyframes revealUp {
+	from {
+		opacity: 0;
+		transform: translateY(18px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@media (max-width: 991.98px) {
+	.wc-hero-content {
+		padding: 1.6rem;
+	}
+
+	.wc-user-badge {
+		margin-top: 8px;
+		display: inline-block;
+	}
+}
+
+@media (max-width: 575.98px) {
+	.brand-title {
+		font-size: 1.2rem;
+	}
+
+	.hero-title {
+		font-size: 2.15rem;
+	}
+
+	.wc-countdown {
+		grid-template-columns: repeat(2, minmax(84px, 1fr));
+	}
+
+	.score-input {
+		width: 56px;
+	}
+}
