@@ -78,6 +78,7 @@ async function showApp() {
   document.getElementById('loginPanel').classList.add('d-none');
   document.getElementById('appPanel').classList.remove('d-none');
   document.getElementById('userBadge').textContent = `${user.name}${user.isAdmin ? ' (Admin)' : ''}`;
+  document.getElementById('exportCsvBtn').href = `/api/export/${user.id}`;
   document.getElementById('adminPanel').classList.toggle('d-none', !user.isAdmin);
   await refreshAll();
 }
