@@ -385,13 +385,13 @@ ORDER BY m.Id";
 
         while (await r.ReadAsync())
         {
-            sb.AppendLine(Csv(r.GetInt32(0).ToString())).Append(',')
+            sb.Append(Csv(r.GetString(0).ToString())).Append(',')
               .Append(Csv(r.GetString(1))).Append(',')
               .Append(Csv(r.GetString(2))).Append(',')
-              .Append(Csv(r.GetString(3))).Append(',')
+              .Append(Csv(r.GetDateTime(3).ToString("MM/dd/yyyy HH:mm"))).Append(',')
               .Append(Csv(r.IsDBNull(4) ? "" : r.GetString(4))).Append(',')
-              .Append(Csv(r.IsDBNull(5) ? "" : r.GetString(5))).Append(',')              
-              .AppendLine();
+              .Append(Csv(r.IsDBNull(5) ? "" : r.GetString(5))).Append(',')
+              .AppendLine();              
         }
 
         return sb.ToString();
