@@ -48,7 +48,15 @@ app.MapPost("/api/admin/result", async (ResultUpdate req) =>
 
 app.MapGet("/api/leaderboard", async () => Results.Ok(await Db.GetLeaderboard(connectionString)));
 
-app.MapGet("/api/export", async () => Results.Text(await Db.ExportCsv(connectionString), "text/csv"));
+app.MapGet("/api/export/{userId:int}", async (int userId) =>
+{
+    var user = await Db.GetUserById(connectionString, userId);
+    if (user is null) return Results.NotFound();
+
+    var csv = await Db.ExportPredictionsCsv(connectionString, userId);
+    var fileName = $"{Db.ToSafeFilePart(user.Name)}_predictions_{DateTime.UtcNow:yyyy-MM-dd}.csv";
+    return Results.File(Encoding.UTF8.GetBytes(csv), "text/csv; charset=utf-8", fileName);
+});
 
 app.Run();
 
@@ -99,10 +107,10 @@ CREATE TABLE IF NOT EXISTS Predictions(
         var count = ScalarLong(con, "SELECT COUNT(*) FROM Users");
         if (count == 0)
         {
-            AddUser(con, "Elie", "1111", false);
-            AddUser(con, "Sargon", "2222", false);
-            AddUser(con, "Jacob", "3333", false);
-            AddUser(con, "Zuhir", "4444", false);
+            AddUser(con, "Elie", "3102", false);
+            AddUser(con, "Sargon", "2125", false);
+            AddUser(con, "Jacob", "1150", false);
+            AddUser(con, "Zuhir", "9010", false);
             AddUser(con, "Akkad", "9999", true);
         }
         var matchCount = ScalarLong(con, "SELECT COUNT(*) FROM Matches");
@@ -262,6 +270,16 @@ CREATE TABLE IF NOT EXISTS Predictions(
         return result is long l && l == 1;
     }
 
+    public static async Task<User?> GetUserById(string cs, int userId)
+    {
+        await using var con = new SqliteConnection(cs); await con.OpenAsync();
+        await using var cmd = con.CreateCommand();
+        cmd.CommandText = "SELECT Id, Name, PinHash, IsAdmin FROM Users WHERE Id=$id";
+        cmd.Parameters.AddWithValue("$id", userId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        return await r.ReadAsync() ? new User(r.GetInt32(0), r.GetString(1), r.GetString(2), r.GetInt32(3) == 1) : null;
+    }
+
     public static async Task<List<object>> GetMatches(string cs)
     {
         var list = new List<object>();
@@ -350,11 +368,51 @@ FROM Predictions p JOIN Matches m ON m.Id=p.MatchId WHERE p.UserId=$u";
         return board.OrderByDescending(x => (int)x.GetType().GetProperty("Points")!.GetValue(x)!).ToList<object>();
     }
 
-    public static async Task<string> ExportCsv(string cs)
+    public static async Task<string> ExportPredictionsCsv(string cs, int userId)
     {
-        var sb = new StringBuilder("Name,Predictions,Points\n");
-        foreach (dynamic row in await GetLeaderboard(cs)) sb.AppendLine($"{row.Name},{row.Predictions},{row.Points}");
+        var sb = new StringBuilder("MatchId,Group,HomeTeam,AwayTeam,Venue,KickoffUtc,ActualHomeGoals,ActualAwayGoals,PredictedHomeGoals,PredictedAwayGoals\n");
+
+        await using var con = new SqliteConnection(cs); await con.OpenAsync();
+        await using var cmd = con.CreateCommand();
+        cmd.CommandText = @"
+SELECT m.Id, m.GroupName, m.HomeTeam, m.AwayTeam, m.Venue, m.KickoffUtc,
+       m.ActualHomeGoals, m.ActualAwayGoals,
+       p.HomeGoals, p.AwayGoals
+FROM Matches m
+LEFT JOIN Predictions p ON p.MatchId = m.Id AND p.UserId = $u
+ORDER BY m.Id";
+        cmd.Parameters.AddWithValue("$u", userId);
+        await using var r = await cmd.ExecuteReaderAsync();
+
+        while (await r.ReadAsync())
+        {
+            sb.Append(Csv(r.GetInt32(0).ToString())).Append(',')
+              .Append(Csv(r.GetString(1))).Append(',')
+              .Append(Csv(r.GetString(2))).Append(',')
+              .Append(Csv(r.GetString(3))).Append(',')
+              .Append(Csv(r.IsDBNull(4) ? "" : r.GetString(4))).Append(',')
+              .Append(Csv(r.IsDBNull(5) ? "" : r.GetString(5))).Append(',')
+              .Append(Csv(r.IsDBNull(6) ? "" : r.GetInt32(6).ToString())).Append(',')
+              .Append(Csv(r.IsDBNull(7) ? "" : r.GetInt32(7).ToString())).Append(',')
+              .Append(Csv(r.IsDBNull(8) ? "" : r.GetInt32(8).ToString())).Append(',')
+              .Append(Csv(r.IsDBNull(9) ? "" : r.GetInt32(9).ToString()))
+              .AppendLine();
+        }
+
         return sb.ToString();
+    }
+
+    public static string ToSafeFilePart(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var safe = new string(value.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim();
+        return string.IsNullOrWhiteSpace(safe) ? "user" : safe;
+    }
+
+    static string Csv(string value)
+    {
+        if (value.Contains('"')) value = value.Replace("\"", "\"\"");
+        return value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0 ? $"\"{value}\"" : value;
     }
 
     static void Exec(SqliteConnection con, string sql) { using var cmd = con.CreateCommand(); cmd.CommandText = sql; cmd.ExecuteNonQuery(); }
