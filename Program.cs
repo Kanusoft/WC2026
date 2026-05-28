@@ -371,7 +371,7 @@ FROM Predictions p JOIN Matches m ON m.Id=p.MatchId WHERE p.UserId=$u";
     public static async Task<string> ExportPredictionsCsv(string cs, int userId, string userName)
     {
         var sb = new StringBuilder($"Predections for {userName}\n\n");
-        sb.AppendLine("Group,HomeTeam as [Home Team],AwayTeam as [Away Team],KickoffUtc AS [Kick off],PredictedHomeGoals as [Home Goals],PredictedAwayGoals as [Away Goals]");
+        sb.AppendLine("Group,Home Team,Away Team,Kick off,Home Goals,Away Goals");
 
         await using var con = new SqliteConnection(cs); await con.OpenAsync();
         await using var cmd = con.CreateCommand();
