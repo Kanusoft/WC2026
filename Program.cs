@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -11,6 +12,11 @@ Directory.CreateDirectory(dataDir);
 var dbPath = Path.Combine(dataDir, "worldcup2026pool.db");
 var connectionString = $"Data Source={dbPath}";
 Db.Init(connectionString);
+
+var predictionLockUtc = DateTimeOffset.Parse(
+    "2026-06-11T18:00:00Z",
+    CultureInfo.InvariantCulture,
+    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -26,8 +32,24 @@ app.MapGet("/api/matches", async () => Results.Ok(await Db.GetMatches(connection
 
 app.MapGet("/api/predictions/{userId:int}", async (int userId) => Results.Ok(await Db.GetPredictions(connectionString, userId)));
 
+app.MapGet("/api/predictions/today", async () => Results.Ok(await Db.GetTodayMatchesWithPredictions(connectionString)));
+
+app.MapGet("/api/predictions/status", () => Results.Ok(new
+{
+    IsLocked = DateTimeOffset.UtcNow >= predictionLockUtc,
+    LockAtUtc = predictionLockUtc.ToString("O")
+}));
+
 app.MapPost("/api/predictions", async (PredictionSave req) =>
 {
+    if (DateTimeOffset.UtcNow >= predictionLockUtc)
+    {
+        return Results.Json(new
+        {
+            Message = "Predictions are locked one hour before kickoff."
+        }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
     await Db.SavePrediction(connectionString, req.UserId, req.MatchId, req.HomeGoals, req.AwayGoals);
     return Results.Ok();
 });
@@ -64,6 +86,8 @@ record LoginRequest(string Name, string Pin);
 record PredictionSave(int UserId, int MatchId, int? HomeGoals, int? AwayGoals);
 record MatchUpdate(int AdminUserId, int MatchId, string GroupName, string HomeTeam, string AwayTeam, string? KickoffUtc, string? Venue);
 record ResultUpdate(int AdminUserId, int MatchId, int? ActualHomeGoals, int? ActualAwayGoals);
+record TodayPrediction(int UserId, string UserName, int? HomeGoals, int? AwayGoals);
+record TodayMatch(int Id, string GroupName, string HomeTeam, string AwayTeam, string KickoffUtc, string? Venue, int? ActualHomeGoals, int? ActualAwayGoals, List<TodayPrediction> Predictions);
 record User(int Id, string Name, string PinHash, bool IsAdmin);
 
 static class Db
@@ -305,6 +329,78 @@ CREATE TABLE IF NOT EXISTS Predictions(
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync()) d[r.GetInt32(0)] = new { HomeGoals = r.IsDBNull(1)?(int?)null:r.GetInt32(1), AwayGoals = r.IsDBNull(2)?(int?)null:r.GetInt32(2) };
         return d;
+    }
+
+    public static async Task<List<TodayMatch>> GetTodayMatchesWithPredictions(string cs)
+    {
+        var matchOrder = new List<int>();
+        var matchMeta = new Dictionary<int, (string GroupName, string HomeTeam, string AwayTeam, string KickoffUtc, string? Venue, int? ActualHomeGoals, int? ActualAwayGoals)>();
+        var matchPredictions = new Dictionary<int, List<TodayPrediction>>();
+
+        await using var con = new SqliteConnection(cs); await con.OpenAsync();
+        await using var cmd = con.CreateCommand();
+        cmd.CommandText = @"
+SELECT
+  m.Id,
+  m.GroupName,
+  m.HomeTeam,
+  m.AwayTeam,
+  m.KickoffUtc,
+  m.Venue,
+  m.ActualHomeGoals,
+  m.ActualAwayGoals,
+  u.Id,
+  u.Name,
+  p.HomeGoals,
+  p.AwayGoals
+FROM Matches m
+CROSS JOIN Users u
+LEFT JOIN Predictions p ON p.MatchId = m.Id AND p.UserId = u.Id
+WHERE m.KickoffUtc IS NOT NULL AND date(m.KickoffUtc) = date('now')
+ORDER BY m.KickoffUtc, m.Id, u.Name;";
+
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+        {
+            var matchId = r.GetInt32(0);
+            if (!matchMeta.ContainsKey(matchId))
+            {
+                matchOrder.Add(matchId);
+                matchMeta[matchId] = (
+                    r.GetString(1),
+                    r.GetString(2),
+                    r.GetString(3),
+                    r.GetString(4),
+                    r.IsDBNull(5) ? null : r.GetString(5),
+                    r.IsDBNull(6) ? (int?)null : r.GetInt32(6),
+                    r.IsDBNull(7) ? (int?)null : r.GetInt32(7));
+                matchPredictions[matchId] = new List<TodayPrediction>();
+            }
+
+            matchPredictions[matchId].Add(new TodayPrediction(
+                r.GetInt32(8),
+                r.GetString(9),
+                r.IsDBNull(10) ? (int?)null : r.GetInt32(10),
+                r.IsDBNull(11) ? (int?)null : r.GetInt32(11)));
+        }
+
+        var result = new List<TodayMatch>();
+        foreach (var matchId in matchOrder)
+        {
+            var meta = matchMeta[matchId];
+            result.Add(new TodayMatch(
+                matchId,
+                meta.GroupName,
+                meta.HomeTeam,
+                meta.AwayTeam,
+                meta.KickoffUtc,
+                meta.Venue,
+                meta.ActualHomeGoals,
+                meta.ActualAwayGoals,
+                matchPredictions[matchId]));
+        }
+
+        return result;
     }
 
     public static async Task SavePrediction(string cs, int userId, int matchId, int? hg, int? ag)
