@@ -108,18 +108,20 @@ async function refreshAll() {
 
 function renderPredictions() {
   const table = document.getElementById('predictionTable');
-  let html = `<thead><tr><th>#</th><th>Group</th><th>Match</th><th>Actual</th><th>Your prediction</th><th></th></tr></thead><tbody>`;
+  let html = `<thead><tr><th>#</th><th>Group</th><th>Match</th><th>Match Date/Time</th><th>Actual</th><th>Your prediction</th><th></th></tr></thead><tbody>`;
   let lastGroup = '';
   for (const m of matches) {
-    if (m.groupName !== lastGroup) { html += `<tr class="group-row"><td colspan="6">Group ${m.groupName}</td></tr>`; lastGroup = m.groupName; }
+    if (m.groupName !== lastGroup) { html += `<tr class="group-row"><td colspan="7">Group ${m.groupName}</td></tr>`; lastGroup = m.groupName; }
     const p = predictions[m.id] || {};
     const isPending = m.actualHomeGoals == null;
     const disabledAttr = predictionsLocked ? 'disabled' : '';
     const actual = isPending ? 'Pending' : `${m.actualHomeGoals} - ${m.actualAwayGoals}`;
     const resultClass = isPending ? 'text-bg-warning' : 'text-bg-success';
     const resultIcon = isPending ? 'bi-hourglass-split' : 'bi-check-circle-fill';
+    const matchDateTime = formatPredictionMatchDateTime(m.kickoffUtc);
     html += `<tr>
       <td>${m.id}</td><td>${m.groupName}</td><td><i class="bi bi-dribbble me-1"></i><strong>${renderTeamName(m.homeTeam)}</strong> vs <strong>${renderTeamName(m.awayTeam)}</strong><div class="small text-muted">${esc(m.venue || '')}</div></td>
+      <td>${matchDateTime}</td>
       <td><span class="badge ${resultClass} badge-result"><i class="bi ${resultIcon} me-1"></i>${actual}</span></td>
       <td><input type="number" min="0" class="form-control form-control-sm score-input" id="ph_${m.id}" value="${p.homeGoals ?? ''}" ${disabledAttr}> - <input type="number" min="0" class="form-control form-control-sm score-input" id="pa_${m.id}" value="${p.awayGoals ?? ''}" ${disabledAttr}></td>
       <td><button class="btn btn-sm btn-primary" onclick="savePrediction(${m.id})" ${disabledAttr}>Save</button></td>
@@ -269,6 +271,20 @@ function formatKickoffUtc(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return esc(value || 'N/A');
   return date.toUTCString();
+}
+
+function formatPredictionMatchDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'N/A';
+
+  return date.toLocaleString('en-US', {
+    month: 'numeric',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  });
 }
 
 function initCountdown() {
