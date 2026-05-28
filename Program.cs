@@ -53,7 +53,7 @@ app.MapGet("/api/export/{userId:int}", async (int userId) =>
     var user = await Db.GetUserById(connectionString, userId);
     if (user is null) return Results.NotFound();
 
-    var csv = await Db.ExportPredictionsCsv(connectionString, userId);
+    var csv = await Db.ExportPredictionsCsv(connectionString, userId, user.Name);
     var fileName = $"{Db.ToSafeFilePart(user.Name)}_predictions_{DateTime.UtcNow:yyyy-MM-dd}.csv";
     return Results.File(Encoding.UTF8.GetBytes(csv), "text/csv; charset=utf-8", fileName);
 });
@@ -368,16 +368,14 @@ FROM Predictions p JOIN Matches m ON m.Id=p.MatchId WHERE p.UserId=$u";
         return board.OrderByDescending(x => (int)x.GetType().GetProperty("Points")!.GetValue(x)!).ToList<object>();
     }
 
-    public static async Task<string> ExportPredictionsCsv(string cs, int userId)
+    public static async Task<string> ExportPredictionsCsv(string cs, int userId, string userName)
     {
-        var sb = new StringBuilder("MatchId,Group,HomeTeam,AwayTeam,Venue,KickoffUtc,ActualHomeGoals,ActualAwayGoals,PredictedHomeGoals,PredictedAwayGoals\n");
+        var sb = new StringBuilder("Group,HomeTeam,AwayTeam,KickoffUtc,PredictedHomeGoals,PredictedAwayGoals\n");
 
         await using var con = new SqliteConnection(cs); await con.OpenAsync();
         await using var cmd = con.CreateCommand();
         cmd.CommandText = @"
-SELECT m.Id, m.GroupName, m.HomeTeam, m.AwayTeam, m.Venue, m.KickoffUtc,
-       m.ActualHomeGoals, m.ActualAwayGoals,
-       p.HomeGoals, p.AwayGoals
+SELECT m.GroupName, m.HomeTeam, m.AwayTeam, m.KickoffUtc, p.HomeGoals, p.AwayGoals
 FROM Matches m
 LEFT JOIN Predictions p ON p.MatchId = m.Id AND p.UserId = $u
 ORDER BY m.Id";
@@ -386,16 +384,13 @@ ORDER BY m.Id";
 
         while (await r.ReadAsync())
         {
-            sb.Append(Csv(r.GetInt32(0).ToString())).Append(',')
+            sb.AppendLine($"Predections for {userName}")
+                .Append(Csv(r.GetInt32(0).ToString())).Append(',')
               .Append(Csv(r.GetString(1))).Append(',')
               .Append(Csv(r.GetString(2))).Append(',')
               .Append(Csv(r.GetString(3))).Append(',')
               .Append(Csv(r.IsDBNull(4) ? "" : r.GetString(4))).Append(',')
-              .Append(Csv(r.IsDBNull(5) ? "" : r.GetString(5))).Append(',')
-              .Append(Csv(r.IsDBNull(6) ? "" : r.GetInt32(6).ToString())).Append(',')
-              .Append(Csv(r.IsDBNull(7) ? "" : r.GetInt32(7).ToString())).Append(',')
-              .Append(Csv(r.IsDBNull(8) ? "" : r.GetInt32(8).ToString())).Append(',')
-              .Append(Csv(r.IsDBNull(9) ? "" : r.GetInt32(9).ToString()))
+              .Append(Csv(r.IsDBNull(5) ? "" : r.GetString(5))).Append(',')              
               .AppendLine();
         }
 
