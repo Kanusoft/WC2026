@@ -225,6 +225,18 @@ body {
 	border-radius: 999px;
 }
 
+.today-match {
+	border: 1px solid rgba(100, 116, 139, 0.2);
+	border-radius: 12px;
+	padding: 12px;
+	background: rgba(255, 255, 255, 0.72);
+}
+
+.today-match-header {
+	border-bottom: 1px dashed rgba(100, 116, 139, 0.35);
+	padding-bottom: 8px;
+}
+
 .team-flag {
 	width: 24px;
 	height: 18px;
@@ -317,5 +329,9 @@ body {
 
 	.score-input {
 		width: 56px;
+	}
+
+	.today-match {
+		padding: 10px;
 	}
 }

@@ -1,9 +1,12 @@
 let user = JSON.parse(localStorage.getItem('wcUser') || 'null');
 let matches = [];
 let predictions = {};
+let todayPredictions = [];
+let predictionsLocked = false;
 let countdownTimer = null;
 
 const WORLD_CUP_KICKOFF_UTC = '2026-06-11T19:00:00Z';
+const PREDICTIONS_LOCK_UTC = '2026-06-11T18:00:00Z';
 
 const TEAM_FLAG_CODES = {
   argentina: 'ar',
@@ -84,9 +87,21 @@ async function showApp() {
 }
 
 async function refreshAll() {
-  matches = await (await fetch('/api/matches')).json();
-  predictions = await (await fetch(`/api/predictions/${user.id}`)).json();
+  const [matchData, predictionData, predictionStatusData, todayPredictionData] = await Promise.all([
+    fetch('/api/matches').then(r => r.json()),
+    fetch(`/api/predictions/${user.id}`).then(r => r.json()),
+    fetch('/api/predictions/status').then(r => r.json()),
+    fetch('/api/predictions/today').then(r => r.json())
+  ]);
+
+  matches = matchData;
+  predictions = predictionData;
+  todayPredictions = todayPredictionData;
+  predictionsLocked = Boolean(predictionStatusData?.isLocked);
+
   renderPredictions();
+  renderTodayPredictions();
+  renderPredictionLockBanner();
   renderAdmin();
   renderLeaderboard();
 }
@@ -99,24 +114,97 @@ function renderPredictions() {
     if (m.groupName !== lastGroup) { html += `<tr class="group-row"><td colspan="6">Group ${m.groupName}</td></tr>`; lastGroup = m.groupName; }
     const p = predictions[m.id] || {};
     const isPending = m.actualHomeGoals == null;
+    const disabledAttr = predictionsLocked ? 'disabled' : '';
     const actual = isPending ? 'Pending' : `${m.actualHomeGoals} - ${m.actualAwayGoals}`;
     const resultClass = isPending ? 'text-bg-warning' : 'text-bg-success';
     const resultIcon = isPending ? 'bi-hourglass-split' : 'bi-check-circle-fill';
     html += `<tr>
       <td>${m.id}</td><td>${m.groupName}</td><td><i class="bi bi-dribbble me-1"></i><strong>${renderTeamName(m.homeTeam)}</strong> vs <strong>${renderTeamName(m.awayTeam)}</strong><div class="small text-muted">${esc(m.venue || '')}</div></td>
       <td><span class="badge ${resultClass} badge-result"><i class="bi ${resultIcon} me-1"></i>${actual}</span></td>
-      <td><input type="number" min="0" class="form-control form-control-sm score-input" id="ph_${m.id}" value="${p.homeGoals ?? ''}"> - <input type="number" min="0" class="form-control form-control-sm score-input" id="pa_${m.id}" value="${p.awayGoals ?? ''}"></td>
-      <td><button class="btn btn-sm btn-primary" onclick="savePrediction(${m.id})">Save</button></td>
+      <td><input type="number" min="0" class="form-control form-control-sm score-input" id="ph_${m.id}" value="${p.homeGoals ?? ''}" ${disabledAttr}> - <input type="number" min="0" class="form-control form-control-sm score-input" id="pa_${m.id}" value="${p.awayGoals ?? ''}" ${disabledAttr}></td>
+      <td><button class="btn btn-sm btn-primary" onclick="savePrediction(${m.id})" ${disabledAttr}>Save</button></td>
     </tr>`;
   }
   table.innerHTML = html + '</tbody>';
 }
 
 async function savePrediction(matchId) {
+  if (isPredictionWindowLocked()) {
+    predictionsLocked = true;
+    renderPredictionLockBanner();
+    return;
+  }
+
   const hg = valOrNull(`ph_${matchId}`);
   const ag = valOrNull(`pa_${matchId}`);
-  await fetch('/api/predictions', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ userId:user.id, matchId, homeGoals:hg, awayGoals:ag }) });
+  const response = await fetch('/api/predictions', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ userId:user.id, matchId, homeGoals:hg, awayGoals:ag })
+  });
+
+  if (!response.ok) {
+    if (response.status === 403) {
+      predictionsLocked = true;
+      renderPredictionLockBanner();
+    }
+    return;
+  }
+
   await refreshAll();
+}
+
+function isPredictionWindowLocked() {
+  return Date.now() >= Date.parse(PREDICTIONS_LOCK_UTC);
+}
+
+function renderPredictionLockBanner() {
+  const banner = document.getElementById('predictionLockBanner');
+  if (!banner) return;
+
+  const lockDate = new Date(PREDICTIONS_LOCK_UTC);
+  if (predictionsLocked || isPredictionWindowLocked()) {
+    banner.classList.remove('d-none');
+    banner.textContent = 'Predictions are locked one hour before kickoff and can no longer be edited.';
+    return;
+  }
+
+  banner.classList.remove('d-none');
+  banner.textContent = `Predictions lock at ${lockDate.toUTCString()} (one hour before kickoff).`;
+}
+
+function renderTodayPredictions() {
+  const container = document.getElementById('todayPredictions');
+  if (!container) return;
+
+  if (!Array.isArray(todayPredictions) || todayPredictions.length === 0) {
+    container.innerHTML = '<div class="text-muted">No games scheduled for today (UTC).</div>';
+    return;
+  }
+
+  let html = '';
+  for (const m of todayPredictions) {
+    html += `<div class="today-match mb-3">
+      <div class="today-match-header d-flex flex-wrap justify-content-between gap-2">
+        <div><span class="badge text-bg-secondary me-2">Group ${esc(m.groupName)}</span><strong>${renderTeamName(m.homeTeam)}</strong> vs <strong>${renderTeamName(m.awayTeam)}</strong></div>
+        <div class="small text-muted">Kickoff: ${formatKickoffUtc(m.kickoffUtc)}</div>
+      </div>
+      <div class="table-responsive mt-2">
+        <table class="table table-sm align-middle mb-0">
+          <thead><tr><th>User</th><th>Prediction</th></tr></thead>
+          <tbody>`;
+
+    for (const p of m.predictions || []) {
+      const prediction = (p.homeGoals == null || p.awayGoals == null) ? '<span class="text-muted">Not submitted</span>' : `${p.homeGoals} - ${p.awayGoals}`;
+      html += `<tr><td>${esc(p.userName)}</td><td>${prediction}</td></tr>`;
+    }
+
+    html += `</tbody></table>
+      </div>
+    </div>`;
+  }
+
+  container.innerHTML = html;
 }
 
 function renderAdmin() {
@@ -175,6 +263,12 @@ function renderTeamName(teamName) {
   const code = getTeamFlagCode(teamName);
   if (!code) return safeName;
   return `<img class="team-flag" src="https://flagcdn.com/24x18/${code}.png" alt="${safeName} flag" loading="lazy"> ${safeName}`;
+}
+
+function formatKickoffUtc(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return esc(value || 'N/A');
+  return date.toUTCString();
 }
 
 function initCountdown() {
