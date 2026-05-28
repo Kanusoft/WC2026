@@ -34,6 +34,8 @@ app.MapGet("/api/predictions/{userId:int}", async (int userId) => Results.Ok(awa
 
 app.MapGet("/api/predictions/today", async () => Results.Ok(await Db.GetTodayMatchesWithPredictions(connectionString)));
 
+app.MapGet("/api/predictions/schedule", async () => Results.Ok(await Db.GetScheduleMatchesWithPredictions(connectionString)));
+
 app.MapGet("/api/predictions/status", () => Results.Ok(new
 {
     IsLocked = DateTimeOffset.UtcNow >= predictionLockUtc,
@@ -148,6 +150,17 @@ CREATE TABLE IF NOT EXISTS Predictions(
             Exec(con, "DELETE FROM Matches;");
             SeedMatches(con);
         }
+
+        EnsureCriticalKickoffs(con);
+    }
+
+    static void EnsureCriticalKickoffs(SqliteConnection con)
+    {
+        // Keep existing data intact and only patch known missing kickoff values.
+        using var cmd = con.CreateCommand();
+        cmd.CommandText = "UPDATE Matches SET KickoffUtc=$k WHERE Id=1 AND (KickoffUtc IS NULL OR trim(KickoffUtc)='')";
+        cmd.Parameters.AddWithValue("$k", ToUtcIsoFromEt("2026-06-11", "15:00"));
+        cmd.ExecuteNonQuery();
     }
 
     static void AddUser(SqliteConnection con, string name, string pin, bool admin)
@@ -371,6 +384,77 @@ ORDER BY m.KickoffUtc, m.Id, u.Name;";
                     r.GetString(2),
                     r.GetString(3),
                     r.GetString(4),
+                    r.IsDBNull(5) ? null : r.GetString(5),
+                    r.IsDBNull(6) ? (int?)null : r.GetInt32(6),
+                    r.IsDBNull(7) ? (int?)null : r.GetInt32(7));
+                matchPredictions[matchId] = new List<TodayPrediction>();
+            }
+
+            matchPredictions[matchId].Add(new TodayPrediction(
+                r.GetInt32(8),
+                r.GetString(9),
+                r.IsDBNull(10) ? (int?)null : r.GetInt32(10),
+                r.IsDBNull(11) ? (int?)null : r.GetInt32(11)));
+        }
+
+        var result = new List<TodayMatch>();
+        foreach (var matchId in matchOrder)
+        {
+            var meta = matchMeta[matchId];
+            result.Add(new TodayMatch(
+                matchId,
+                meta.GroupName,
+                meta.HomeTeam,
+                meta.AwayTeam,
+                meta.KickoffUtc,
+                meta.Venue,
+                meta.ActualHomeGoals,
+                meta.ActualAwayGoals,
+                matchPredictions[matchId]));
+        }
+
+        return result;
+    }
+
+    public static async Task<List<TodayMatch>> GetScheduleMatchesWithPredictions(string cs)
+    {
+        var matchOrder = new List<int>();
+        var matchMeta = new Dictionary<int, (string GroupName, string HomeTeam, string AwayTeam, string KickoffUtc, string? Venue, int? ActualHomeGoals, int? ActualAwayGoals)>();
+        var matchPredictions = new Dictionary<int, List<TodayPrediction>>();
+
+        await using var con = new SqliteConnection(cs); await con.OpenAsync();
+        await using var cmd = con.CreateCommand();
+        cmd.CommandText = @"
+SELECT
+  m.Id,
+  m.GroupName,
+  m.HomeTeam,
+  m.AwayTeam,
+  m.KickoffUtc,
+  m.Venue,
+  m.ActualHomeGoals,
+  m.ActualAwayGoals,
+  u.Id,
+  u.Name,
+  p.HomeGoals,
+  p.AwayGoals
+FROM Matches m
+CROSS JOIN Users u
+LEFT JOIN Predictions p ON p.MatchId = m.Id AND p.UserId = u.Id
+ORDER BY m.Id, u.Name;";
+
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+        {
+            var matchId = r.GetInt32(0);
+            if (!matchMeta.ContainsKey(matchId))
+            {
+                matchOrder.Add(matchId);
+                matchMeta[matchId] = (
+                    r.GetString(1),
+                    r.GetString(2),
+                    r.GetString(3),
+                    r.IsDBNull(4) ? "" : r.GetString(4),
                     r.IsDBNull(5) ? null : r.GetString(5),
                     r.IsDBNull(6) ? (int?)null : r.GetInt32(6),
                     r.IsDBNull(7) ? (int?)null : r.GetInt32(7));
