@@ -370,7 +370,8 @@ FROM Predictions p JOIN Matches m ON m.Id=p.MatchId WHERE p.UserId=$u";
 
     public static async Task<string> ExportPredictionsCsv(string cs, int userId, string userName)
     {
-        var sb = new StringBuilder("Group,HomeTeam,AwayTeam,KickoffUtc,PredictedHomeGoals,PredictedAwayGoals\n");
+        var sb = new StringBuilder($"Predections for {userName}\n\n");
+        sb.AppendLine("Group,HomeTeam,AwayTeam,KickoffUtc,PredictedHomeGoals,PredictedAwayGoals");
 
         await using var con = new SqliteConnection(cs); await con.OpenAsync();
         await using var cmd = con.CreateCommand();
@@ -384,8 +385,7 @@ ORDER BY m.Id";
 
         while (await r.ReadAsync())
         {
-            sb.AppendLine($"Predections for {userName}")
-                .Append(Csv(r.GetInt32(0).ToString())).Append(',')
+            sb.AppendLine(Csv(r.GetInt32(0).ToString())).Append(',')
               .Append(Csv(r.GetString(1))).Append(',')
               .Append(Csv(r.GetString(2))).Append(',')
               .Append(Csv(r.GetString(3))).Append(',')
