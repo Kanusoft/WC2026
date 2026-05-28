@@ -11,14 +11,21 @@ const PREDICTIONS_LOCK_UTC = '2026-06-11T18:00:00Z';
 const TEAM_FLAG_CODES = {
   argentina: 'ar',
   australia: 'au',
+  austria: 'at',
   belgium: 'be',
   bolivia: 'bo',
+  bosniaandherzegovina: 'ba',
   brazil: 'br',
+  caboverde: 'cv',
   cameroon: 'cm',
   canada: 'ca',
   chile: 'cl',
   colombia: 'co',
+  congodr: 'cd',
+  cotedivoire: 'ci',
   croatia: 'hr',
+  curacao: 'cw',
+  czechia: 'cz',
   denmark: 'dk',
   ecuador: 'ec',
   egypt: 'eg',
@@ -26,11 +33,13 @@ const TEAM_FLAG_CODES = {
   france: 'fr',
   germany: 'de',
   ghana: 'gh',
+  haiti: 'ht',
   iran: 'ir',
   iraq: 'iq',
   italy: 'it',
   ivorycoast: 'ci',
   japan: 'jp',
+  jordan: 'jo',
   korea: 'kr',
   southkorea: 'kr',
   mexico: 'mx',
@@ -46,14 +55,19 @@ const TEAM_FLAG_CODES = {
   portugal: 'pt',
   qatar: 'qa',
   saudiarabia: 'sa',
+  scotland: 'gb',
   senegal: 'sn',
   serbia: 'rs',
+  southafrica: 'za',
   spain: 'es',
+  sweden: 'se',
   switzerland: 'ch',
   tunisia: 'tn',
+  turkiye: 'tr',
   turkey: 'tr',
   usa: 'us',
   unitedstates: 'us',
+  uzbekistan: 'uz',
   uruguay: 'uy',
   venezuela: 've',
   wales: 'gb'
@@ -228,9 +242,10 @@ function renderAdmin() {
 }
 
 async function saveAdmin(matchId) {
+  const currentMatch = matches.find(m => m.id === matchId);
   await fetch('/api/admin/matches', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
     adminUserId:user.id, matchId, groupName:document.getElementById(`g_${matchId}`).value, homeTeam:document.getElementById(`h_${matchId}`).value,
-    awayTeam:document.getElementById(`a_${matchId}`).value, kickoffUtc:null, venue:document.getElementById(`v_${matchId}`).value
+    awayTeam:document.getElementById(`a_${matchId}`).value, kickoffUtc:currentMatch?.kickoffUtc ?? null, venue:document.getElementById(`v_${matchId}`).value
   }) });
   await fetch('/api/admin/result', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ adminUserId:user.id, matchId, actualHomeGoals:valOrNull(`ah_${matchId}`), actualAwayGoals:valOrNull(`aa_${matchId}`) }) });
   await refreshAll();
@@ -253,7 +268,11 @@ function valOrNull(id) { const v = document.getElementById(id).value; return v =
 function esc(s) { return String(s).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[c])); }
 
 function normalizeTeamName(name) {
-  return String(name || '').toLowerCase().replace(/[^a-z]/g, '');
+  return String(name || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z]/g, '');
 }
 
 function getTeamFlagCode(teamName) {
@@ -268,13 +287,13 @@ function renderTeamName(teamName) {
 }
 
 function formatKickoffUtc(value) {
-  const date = new Date(value);
+  const date = parseKickoffDate(value);
   if (Number.isNaN(date.getTime())) return esc(value || 'N/A');
   return date.toUTCString();
 }
 
 function formatPredictionMatchDateTime(value) {
-  const date = new Date(value);
+  const date = parseKickoffDate(value);
   if (Number.isNaN(date.getTime())) return 'N/A';
 
   return date.toLocaleString('en-US', {
@@ -285,6 +304,14 @@ function formatPredictionMatchDateTime(value) {
     minute: '2-digit',
     hour12: true
   });
+}
+
+function parseKickoffDate(value) {
+  if (!value) return new Date(NaN);
+
+  const raw = String(value).trim();
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
+  return new Date(hasTimezone ? raw : `${raw}Z`);
 }
 
 function initCountdown() {
