@@ -3,10 +3,12 @@ let matches = [];
 let predictions = {};
 let todayPredictions = [];
 let predictionsLocked = false;
+let scheduleOpen = false;
+let scheduleOpenAtUtc = null;
 let countdownTimer = null;
 
 const WORLD_CUP_KICKOFF_UTC = '2026-06-11T19:00:00Z';
-const PREDICTIONS_LOCK_UTC = '2026-06-11T18:00:00Z';
+const PREDICTIONS_LOCK_UTC = '2026-06-10T19:00:00Z';
 
 const TEAM_FLAG_CODES = {
   argentina: 'ar',
@@ -112,12 +114,36 @@ async function refreshAll() {
   predictions = predictionData;
   todayPredictions = todayPredictionData;
   predictionsLocked = Boolean(predictionStatusData?.isLocked);
+  scheduleOpen = Boolean(predictionStatusData?.isScheduleOpen);
+  scheduleOpenAtUtc = predictionStatusData?.scheduleOpenAtUtc || null;
 
   renderPredictions();
   renderTodayPredictions();
   renderPredictionLockBanner();
+  renderScheduleAccess();
   renderAdmin();
   renderLeaderboard();
+}
+
+function renderScheduleAccess() {
+  const scheduleBtn = document.getElementById('scheduleLinkBtn');
+  if (!scheduleBtn) return;
+
+  if (scheduleOpen) {
+    scheduleBtn.classList.remove('disabled');
+    scheduleBtn.removeAttribute('aria-disabled');
+    scheduleBtn.removeAttribute('tabindex');
+    scheduleBtn.removeAttribute('title');
+    scheduleBtn.setAttribute('href', '/schedule.html');
+    return;
+  }
+
+  const openDate = scheduleOpenAtUtc ? new Date(scheduleOpenAtUtc).toUTCString() : 'kickoff day';
+  scheduleBtn.classList.add('disabled');
+  scheduleBtn.setAttribute('aria-disabled', 'true');
+  scheduleBtn.setAttribute('tabindex', '-1');
+  scheduleBtn.setAttribute('title', `Full Schedule unlocks on ${openDate}`);
+  scheduleBtn.setAttribute('href', '#');
 }
 
 function renderPredictions() {
@@ -181,12 +207,12 @@ function renderPredictionLockBanner() {
   const lockDate = new Date(PREDICTIONS_LOCK_UTC);
   if (predictionsLocked || isPredictionWindowLocked()) {
     banner.classList.remove('d-none');
-    banner.textContent = 'Predictions are locked one hour before kickoff and can no longer be edited.';
+    banner.textContent = 'Predictions are locked one day before kickoff and can no longer be edited.';
     return;
   }
 
   banner.classList.remove('d-none');
-  banner.textContent = `Predictions lock at ${lockDate.toUTCString()} (one hour before kickoff).`;
+  banner.textContent = `Predictions lock at ${lockDate.toUTCString()} (one day before kickoff).`;
 }
 
 function renderTodayPredictions() {
