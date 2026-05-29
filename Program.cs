@@ -14,9 +14,37 @@ var connectionString = $"Data Source={dbPath}";
 Db.Init(connectionString);
 
 var predictionLockUtc = DateTimeOffset.Parse(
-    "2026-06-11T18:00:00Z",
+    "2026-06-10T19:00:00Z",
     CultureInfo.InvariantCulture,
     DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+
+var scheduleOpenUtc = DateTimeOffset.Parse(
+    "2026-06-11T00:00:00Z",
+    CultureInfo.InvariantCulture,
+    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path.Value ?? string.Empty;
+    var isScheduleRoute = path.Equals("/schedule.html", StringComparison.OrdinalIgnoreCase)
+        || path.Equals("/api/predictions/schedule", StringComparison.OrdinalIgnoreCase);
+
+    if (isScheduleRoute && DateTimeOffset.UtcNow < scheduleOpenUtc)
+    {
+        if (path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(new { Message = "Schedule is not available until kickoff day." });
+            return;
+        }
+
+        context.Response.Redirect("/");
+        return;
+    }
+
+    await next();
+});
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -39,7 +67,9 @@ app.MapGet("/api/predictions/schedule", async () => Results.Ok(await Db.GetSched
 app.MapGet("/api/predictions/status", () => Results.Ok(new
 {
     IsLocked = DateTimeOffset.UtcNow >= predictionLockUtc,
-    LockAtUtc = predictionLockUtc.ToString("O")
+    LockAtUtc = predictionLockUtc.ToString("O"),
+    IsScheduleOpen = DateTimeOffset.UtcNow >= scheduleOpenUtc,
+    ScheduleOpenAtUtc = scheduleOpenUtc.ToString("O")
 }));
 
 app.MapPost("/api/predictions", async (PredictionSave req) =>
@@ -48,7 +78,7 @@ app.MapPost("/api/predictions", async (PredictionSave req) =>
     {
         return Results.Json(new
         {
-            Message = "Predictions are locked one hour before kickoff."
+            Message = "Predictions are locked one day before kickoff."
         }, statusCode: StatusCodes.Status403Forbidden);
     }
 
