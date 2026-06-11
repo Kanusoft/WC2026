@@ -64,13 +64,41 @@ app.MapGet("/api/predictions/today", async () => Results.Ok(await Db.GetTodayMat
 
 app.MapGet("/api/predictions/schedule", async () => Results.Ok(await Db.GetScheduleMatchesWithPredictions(connectionString)));
 
-app.MapGet("/api/predictions/status", () => Results.Ok(new
+app.MapGet("/api/predictions/status", async (int? userId) =>
 {
-    IsLocked = DateTimeOffset.UtcNow >= predictionLockUtc,
-    LockAtUtc = predictionLockUtc.ToString("O"),
-    IsScheduleOpen = DateTimeOffset.UtcNow >= scheduleOpenUtc,
-    ScheduleOpenAtUtc = scheduleOpenUtc.ToString("O")
-}));
+    var now = DateTimeOffset.UtcNow;
+    var isLocked = now >= predictionLockUtc;
+
+    // If locked globally, allow a special exception for Sargon during 2026-06-11 UTC day
+    if (isLocked && userId.HasValue)
+    {
+        var sargonWindowStart = DateTimeOffset.Parse(
+            "2026-06-11T00:00:00Z",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+        var sargonWindowEnd = DateTimeOffset.Parse(
+            "2026-06-12T00:00:00Z",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+
+        if (now >= sargonWindowStart && now < sargonWindowEnd)
+        {
+            var user = await Db.GetUserById(connectionString, userId.Value);
+            if (user is not null && string.Equals(user.Name, "Sargon", StringComparison.OrdinalIgnoreCase))
+            {
+                isLocked = false;
+            }
+        }
+    }
+
+    return Results.Ok(new
+    {
+        IsLocked = isLocked,
+        LockAtUtc = predictionLockUtc.ToString("O"),
+        IsScheduleOpen = now >= scheduleOpenUtc,
+        ScheduleOpenAtUtc = scheduleOpenUtc.ToString("O")
+    });
+});
 
 app.MapPost("/api/predictions", async (PredictionSave req) =>
 {
