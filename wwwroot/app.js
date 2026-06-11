@@ -106,7 +106,7 @@ async function refreshAll() {
   const [matchData, predictionData, predictionStatusData, todayPredictionData] = await Promise.all([
     fetch('/api/matches').then(r => r.json()),
     fetch(`/api/predictions/${user.id}`).then(r => r.json()),
-    fetch('/api/predictions/status').then(r => r.json()),
+    fetch(`/api/predictions/status?userId=${encodeURIComponent(user.id)}`).then(r => r.json()),
     fetch('/api/predictions/today').then(r => r.json())
   ]);
 
@@ -171,8 +171,7 @@ function renderPredictions() {
 }
 
 async function savePrediction(matchId) {
-  if (isPredictionWindowLocked()) {
-    predictionsLocked = true;
+  if (predictionsLocked) {
     renderPredictionLockBanner();
     return;
   }
@@ -205,7 +204,7 @@ function renderPredictionLockBanner() {
   if (!banner) return;
 
   const lockDate = new Date(PREDICTIONS_LOCK_UTC);
-  if (predictionsLocked || isPredictionWindowLocked()) {
+  if (predictionsLocked) {
     banner.classList.remove('d-none');
     banner.textContent = 'Predictions are locked one day before kickoff and can no longer be edited.';
     return;
