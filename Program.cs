@@ -76,10 +76,39 @@ app.MapPost("/api/predictions", async (PredictionSave req) =>
 {
     if (DateTimeOffset.UtcNow >= predictionLockUtc)
     {
-        return Results.Json(new
+        // Special case: allow only the user "Sargon" to submit predictions on 2026-06-11 (UTC) only.
+        var now = DateTimeOffset.UtcNow;
+        var sargonWindowStart = DateTimeOffset.Parse(
+            "2026-06-11T00:00:00Z",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+        var sargonWindowEnd = DateTimeOffset.Parse(
+            "2026-06-12T00:00:00Z",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+
+        if (now >= sargonWindowStart && now < sargonWindowEnd)
         {
-            Message = "Predictions are locked one day before kickoff."
-        }, statusCode: StatusCodes.Status403Forbidden);
+            var user = await Db.GetUserById(connectionString, req.UserId);
+            if (user is not null && string.Equals(user.Name, "Sargon", StringComparison.OrdinalIgnoreCase))
+            {
+                // allowed for Sargon during the special window
+            }
+            else
+            {
+                return Results.Json(new
+                {
+                    Message = "Predictions are locked one day before kickoff."
+                }, statusCode: StatusCodes.Status403Forbidden);
+            }
+        }
+        else
+        {
+            return Results.Json(new
+            {
+                Message = "Predictions are locked one day before kickoff."
+            }, statusCode: StatusCodes.Status403Forbidden);
+        }
     }
 
     await Db.SavePrediction(connectionString, req.UserId, req.MatchId, req.HomeGoals, req.AwayGoals);
