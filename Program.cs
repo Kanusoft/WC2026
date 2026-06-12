@@ -111,7 +111,7 @@ app.MapPost("/api/predictions", async (PredictionSave req) =>
             CultureInfo.InvariantCulture,
             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
         var sargonWindowEnd = DateTimeOffset.Parse(
-            "2026-06-12T00:00:00Z",
+            "2026-06-13T00:00:00Z",
             CultureInfo.InvariantCulture,
             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
 
