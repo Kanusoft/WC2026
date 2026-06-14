@@ -64,29 +64,38 @@ app.MapGet("/api/predictions/today", async () => Results.Ok(await Db.GetTodayMat
 
 app.MapGet("/api/predictions/schedule", async () => Results.Ok(await Db.GetScheduleMatchesWithPredictions(connectionString)));
 
-app.MapGet("/api/predictions/status", async (int? userId) =>
+app.MapGet("/api/predictions/status", async (int? userId, string? userName) =>
 {
     var now = DateTimeOffset.UtcNow;
     var isLocked = now >= predictionLockUtc;
 
     // If locked globally, allow a special exception for Sargon during 2026-06-11 UTC day
-    if (isLocked && userId.HasValue)
+    if (isLocked)
     {
         var sargonWindowStart = DateTimeOffset.Parse(
             "2026-06-11T00:00:00Z",
             CultureInfo.InvariantCulture,
             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
         var sargonWindowEnd = DateTimeOffset.Parse(
-            "2026-06-14T00:00:00Z",
+            "2026-06-12T00:00:00Z",
             CultureInfo.InvariantCulture,
             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
 
         if (now >= sargonWindowStart && now < sargonWindowEnd)
         {
-            var user = await Db.GetUserById(connectionString, userId.Value);
-            if (user is not null && string.Equals(user.Name, "Sargon", StringComparison.OrdinalIgnoreCase))
+            // Check by id if supplied
+            if (userId.HasValue)
             {
-                isLocked = false;
+                var user = await Db.GetUserById(connectionString, userId.Value);
+                if (user is not null && string.Equals(user.Name, "Sargon", StringComparison.OrdinalIgnoreCase))
+                {
+                    isLocked = false;
+                }
+            }
+            // Otherwise check by name if supplied
+            else if (!string.IsNullOrWhiteSpace(userName))
+            {
+                if (string.Equals(userName.Trim(), "Sargon", StringComparison.OrdinalIgnoreCase)) isLocked = false;
             }
         }
     }
@@ -111,7 +120,7 @@ app.MapPost("/api/predictions", async (PredictionSave req) =>
             CultureInfo.InvariantCulture,
             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
         var sargonWindowEnd = DateTimeOffset.Parse(
-            "2026-06-14T00:00:00Z",
+            "2026-06-13T00:00:00Z",
             CultureInfo.InvariantCulture,
             DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
 
@@ -409,7 +418,8 @@ CREATE TABLE IF NOT EXISTS Predictions(
         var list = new List<object>();
         await using var con = new SqliteConnection(cs); await con.OpenAsync();
         await using var cmd = con.CreateCommand();
-        cmd.CommandText = "SELECT Id, GroupName, HomeTeam, AwayTeam, KickoffUtc, Venue, ActualHomeGoals, ActualAwayGoals FROM Matches ORDER BY Id";
+        // Order by kickoff datetime (nulls last) then Id so matches are shown in chronological order
+        cmd.CommandText = "SELECT Id, GroupName, HomeTeam, AwayTeam, KickoffUtc, Venue, ActualHomeGoals, ActualAwayGoals FROM Matches ORDER BY (KickoffUtc IS NULL), KickoffUtc, Id";
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync()) list.Add(new {
             Id=r.GetInt32(0), GroupName=r.GetString(1), HomeTeam=r.GetString(2), AwayTeam=r.GetString(3),
@@ -528,7 +538,7 @@ SELECT
 FROM Matches m
 CROSS JOIN Users u
 LEFT JOIN Predictions p ON p.MatchId = m.Id AND p.UserId = u.Id
-ORDER BY m.Id, u.Name;";
+ORDER BY (m.KickoffUtc IS NULL), m.KickoffUtc, m.Id, u.Name;";
 
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
