@@ -95,6 +95,8 @@ function logout() { localStorage.removeItem('wcUser'); location.reload(); }
 
 async function showApp() {
   document.getElementById('loginPanel').classList.add('d-none');
+  const hero = document.getElementById('heroSection');
+  if (hero) hero.classList.add('d-none');
   document.getElementById('appPanel').classList.remove('d-none');
   document.getElementById('userBadge').textContent = `${user.name}${user.isAdmin ? ' (Admin)' : ''}`;
   document.getElementById('exportCsvBtn').href = `/api/export/${user.id}`;
