@@ -5,6 +5,7 @@ let schedulePredictionMatches = [];
 let predictionsLocked = false;
 let scheduleOpen = false;
 let scheduleOpenAtUtc = null;
+let ninosOverrideActive = false;
 let countdownTimer = null;
 let showAllAdminPastMatches = false;
 
@@ -109,7 +110,7 @@ async function refreshAll() {
   const [matchData, predictionData, predictionStatusData, schedulePredictionData] = await Promise.all([
     fetch('/api/matches').then(r => r.json()),
     fetch(`/api/predictions/${user.id}`).then(r => r.json()),
-    fetch('/api/predictions/status').then(r => r.json()),
+    fetch(`/api/predictions/status?userId=${user.id}`).then(r => r.json()),
     fetch('/api/predictions/schedule').then(r => r.json())
   ]);
 
@@ -117,6 +118,7 @@ async function refreshAll() {
   predictions = predictionData;
   schedulePredictionMatches = schedulePredictionData;
   predictionsLocked = Boolean(predictionStatusData?.isLocked);
+  ninosOverrideActive = Boolean(predictionStatusData?.isNinosOverrideActive);
   scheduleOpen = Boolean(predictionStatusData?.isScheduleOpen);
   scheduleOpenAtUtc = predictionStatusData?.scheduleOpenAtUtc || null;
 
@@ -200,7 +202,7 @@ async function savePrediction(matchId) {
 }
 
 function isPredictionWindowLocked() {
-  return Date.now() >= Date.parse(PREDICTIONS_LOCK_UTC);
+  return predictionsLocked;
 }
 
 function renderPredictionLockBanner() {
@@ -211,6 +213,12 @@ function renderPredictionLockBanner() {
   if (predictionsLocked || isPredictionWindowLocked()) {
     banner.classList.remove('d-none');
     banner.textContent = 'Predictions are locked one day before kickoff and can no longer be edited.';
+    return;
+  }
+
+  if (ninosOverrideActive) {
+    banner.classList.remove('d-none');
+    banner.textContent = 'Temporary override active: Ninos can edit scores today (Pacific Time).';
     return;
   }
 
