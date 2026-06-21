@@ -18,6 +18,17 @@ var predictionLockUtc = DateTimeOffset.Parse(
     CultureInfo.InvariantCulture,
     DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
 
+var ninosEditOverrideDatePacific = new DateOnly(2026, 6, 21);
+TimeZoneInfo pacificTimeZone;
+try
+{
+    pacificTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Pacific Standard Time");
+}
+catch (TimeZoneNotFoundException)
+{
+    pacificTimeZone = TimeZoneInfo.FindSystemTimeZoneById("America/Los_Angeles");
+}
+
 var scheduleOpenUtc = DateTimeOffset.Parse(
     "2026-06-11T00:00:00Z",
     CultureInfo.InvariantCulture,
@@ -64,88 +75,51 @@ app.MapGet("/api/predictions/today", async () => Results.Ok(await Db.GetTodayMat
 
 app.MapGet("/api/predictions/schedule", async () => Results.Ok(await Db.GetScheduleMatchesWithPredictions(connectionString)));
 
-app.MapGet("/api/predictions/status", async (int? userId, string? userName) =>
+bool IsNinosOverrideActive(User? user, DateTimeOffset nowUtc)
 {
-    var now = DateTimeOffset.UtcNow;
-    var isLocked = now >= predictionLockUtc;
+    if (user is null) return false;
+    if (!user.Name.Equals("Ninos", StringComparison.OrdinalIgnoreCase)) return false;
+    var pacificNow = TimeZoneInfo.ConvertTime(nowUtc, pacificTimeZone);
+    return DateOnly.FromDateTime(pacificNow.DateTime) == ninosEditOverrideDatePacific;
+}
 
-    // If locked globally, allow a special exception for Sargon during 2026-06-11 UTC day
-    if (isLocked)
+bool IsPredictionLockedFor(User? user, DateTimeOffset nowUtc)
+{
+    if (nowUtc < predictionLockUtc) return false;
+    return !IsNinosOverrideActive(user, nowUtc);
+}
+
+app.MapGet("/api/predictions/status", async (int? userId) =>
+{
+    User? user = null;
+    if (userId.HasValue)
     {
-        var sargonWindowStart = DateTimeOffset.Parse(
-            "2026-06-11T00:00:00Z",
-            CultureInfo.InvariantCulture,
-            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
-        var sargonWindowEnd = DateTimeOffset.Parse(
-            "2026-06-12T00:00:00Z",
-            CultureInfo.InvariantCulture,
-            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
-
-        if (now >= sargonWindowStart && now < sargonWindowEnd)
-        {
-            // Check by id if supplied
-            if (userId.HasValue)
-            {
-                var user = await Db.GetUserById(connectionString, userId.Value);
-                if (user is not null && string.Equals(user.Name, "Sargon", StringComparison.OrdinalIgnoreCase))
-                {
-                    isLocked = false;
-                }
-            }
-            // Otherwise check by name if supplied
-            else if (!string.IsNullOrWhiteSpace(userName))
-            {
-                if (string.Equals(userName.Trim(), "Sargon", StringComparison.OrdinalIgnoreCase)) isLocked = false;
-            }
-        }
+        user = await Db.GetUserById(connectionString, userId.Value);
     }
 
+    var nowUtc = DateTimeOffset.UtcNow;
+    var overrideActive = IsNinosOverrideActive(user, nowUtc);
     return Results.Ok(new
     {
-        IsLocked = isLocked,
-        LockAtUtc = predictionLockUtc.ToString("O"),
-        IsScheduleOpen = now >= scheduleOpenUtc,
-        ScheduleOpenAtUtc = scheduleOpenUtc.ToString("O")
+    IsLocked = IsPredictionLockedFor(user, nowUtc),
+    LockAtUtc = predictionLockUtc.ToString("O"),
+    IsNinosOverrideActive = overrideActive,
+    IsScheduleOpen = DateTimeOffset.UtcNow >= scheduleOpenUtc,
+    ScheduleOpenAtUtc = scheduleOpenUtc.ToString("O")
     });
 });
 
 app.MapPost("/api/predictions", async (PredictionSave req) =>
 {
-    if (DateTimeOffset.UtcNow >= predictionLockUtc)
-    {
-        // Special case: allow only the user "Sargon" to submit predictions on 2026-06-11 (UTC) only.
-        var now = DateTimeOffset.UtcNow;
-        var sargonWindowStart = DateTimeOffset.Parse(
-            "2026-06-11T00:00:00Z",
-            CultureInfo.InvariantCulture,
-            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
-        var sargonWindowEnd = DateTimeOffset.Parse(
-            "2026-06-13T00:00:00Z",
-            CultureInfo.InvariantCulture,
-            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+    var user = await Db.GetUserById(connectionString, req.UserId);
+    if (user is null) return Results.Unauthorized();
 
-        if (now >= sargonWindowStart && now < sargonWindowEnd)
+    if (IsPredictionLockedFor(user, DateTimeOffset.UtcNow))
+    {
+        return Results.Json(new
         {
-            var user = await Db.GetUserById(connectionString, req.UserId);
-            if (user is not null && string.Equals(user.Name, "Sargon", StringComparison.OrdinalIgnoreCase))
-            {
-                // allowed for Sargon during the special window
-            }
-            else
-            {
-                return Results.Json(new
-                {
-                    Message = "Predictions are locked one day before kickoff."
-                }, statusCode: StatusCodes.Status403Forbidden);
-            }
-        }
-        else
-        {
-            return Results.Json(new
-            {
-                Message = "Predictions are locked one day before kickoff."
-            }, statusCode: StatusCodes.Status403Forbidden);
-        }
+            Message = "Predictions are locked one day before kickoff."
+        }, statusCode: StatusCodes.Status403Forbidden);
     }
 
     await Db.SavePrediction(connectionString, req.UserId, req.MatchId, req.HomeGoals, req.AwayGoals);
@@ -230,7 +204,7 @@ CREATE TABLE IF NOT EXISTS Predictions(
         if (count == 0)
         {
             AddUser(con, "Elie", "3102", false);
-            AddUser(con, "Sargon", "2125", false);
+            AddUser(con, "Ninos", "2125", false);
             AddUser(con, "Jacob", "1150", false);
             AddUser(con, "Zuhir", "9010", false);
             AddUser(con, "Akkad", "9999", true);
@@ -418,8 +392,7 @@ CREATE TABLE IF NOT EXISTS Predictions(
         var list = new List<object>();
         await using var con = new SqliteConnection(cs); await con.OpenAsync();
         await using var cmd = con.CreateCommand();
-        // Order by kickoff datetime (nulls last) then Id so matches are shown in chronological order
-        cmd.CommandText = "SELECT Id, GroupName, HomeTeam, AwayTeam, KickoffUtc, Venue, ActualHomeGoals, ActualAwayGoals FROM Matches ORDER BY (KickoffUtc IS NULL), KickoffUtc, Id";
+        cmd.CommandText = "SELECT Id, GroupName, HomeTeam, AwayTeam, KickoffUtc, Venue, ActualHomeGoals, ActualAwayGoals FROM Matches ORDER BY Id";
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync()) list.Add(new {
             Id=r.GetInt32(0), GroupName=r.GetString(1), HomeTeam=r.GetString(2), AwayTeam=r.GetString(3),
@@ -538,7 +511,7 @@ SELECT
 FROM Matches m
 CROSS JOIN Users u
 LEFT JOIN Predictions p ON p.MatchId = m.Id AND p.UserId = u.Id
-ORDER BY (m.KickoffUtc IS NULL), m.KickoffUtc, m.Id, u.Name;";
+ORDER BY m.Id, u.Name;";
 
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync())
