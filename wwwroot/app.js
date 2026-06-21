@@ -1,14 +1,17 @@
 let user = JSON.parse(localStorage.getItem('wcUser') || 'null');
 let matches = [];
 let predictions = {};
-let todayPredictions = [];
+let schedulePredictionMatches = [];
 let predictionsLocked = false;
 let scheduleOpen = false;
 let scheduleOpenAtUtc = null;
 let countdownTimer = null;
+let showAllAdminPastMatches = false;
 
 const WORLD_CUP_KICKOFF_UTC = '2026-06-11T19:00:00Z';
 const PREDICTIONS_LOCK_UTC = '2026-06-10T19:00:00Z';
+const PACIFIC_TIME_ZONE = 'America/Los_Angeles';
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 const TEAM_FLAG_CODES = {
   argentina: 'ar',
@@ -95,8 +98,6 @@ function logout() { localStorage.removeItem('wcUser'); location.reload(); }
 
 async function showApp() {
   document.getElementById('loginPanel').classList.add('d-none');
-  const hero = document.getElementById('heroSection');
-  if (hero) hero.classList.add('d-none');
   document.getElementById('appPanel').classList.remove('d-none');
   document.getElementById('userBadge').textContent = `${user.name}${user.isAdmin ? ' (Admin)' : ''}`;
   document.getElementById('exportCsvBtn').href = `/api/export/${user.id}`;
@@ -105,16 +106,16 @@ async function showApp() {
 }
 
 async function refreshAll() {
-  const [matchData, predictionData, predictionStatusData, todayPredictionData] = await Promise.all([
+  const [matchData, predictionData, predictionStatusData, schedulePredictionData] = await Promise.all([
     fetch('/api/matches').then(r => r.json()),
     fetch(`/api/predictions/${user.id}`).then(r => r.json()),
-    fetch(`/api/predictions/status?userId=${encodeURIComponent(user.id)}`).then(r => r.json()),
-    fetch('/api/predictions/today').then(r => r.json())
+    fetch('/api/predictions/status').then(r => r.json()),
+    fetch('/api/predictions/schedule').then(r => r.json())
   ]);
 
   matches = matchData;
   predictions = predictionData;
-  todayPredictions = todayPredictionData;
+  schedulePredictionMatches = schedulePredictionData;
   predictionsLocked = Boolean(predictionStatusData?.isLocked);
   scheduleOpen = Boolean(predictionStatusData?.isScheduleOpen);
   scheduleOpenAtUtc = predictionStatusData?.scheduleOpenAtUtc || null;
@@ -173,7 +174,8 @@ function renderPredictions() {
 }
 
 async function savePrediction(matchId) {
-  if (predictionsLocked) {
+  if (isPredictionWindowLocked()) {
+    predictionsLocked = true;
     renderPredictionLockBanner();
     return;
   }
@@ -206,7 +208,7 @@ function renderPredictionLockBanner() {
   if (!banner) return;
 
   const lockDate = new Date(PREDICTIONS_LOCK_UTC);
-  if (predictionsLocked) {
+  if (predictionsLocked || isPredictionWindowLocked()) {
     banner.classList.remove('d-none');
     banner.textContent = 'Predictions are locked one day before kickoff and can no longer be edited.';
     return;
@@ -220,31 +222,60 @@ function renderTodayPredictions() {
   const container = document.getElementById('todayPredictions');
   if (!container) return;
 
-  if (!Array.isArray(todayPredictions) || todayPredictions.length === 0) {
-    container.innerHTML = '<div class="text-muted">No games scheduled for today (UTC).</div>';
+  const todayPacific = getPacificDateKey(new Date());
+  const todaysMatches = (Array.isArray(schedulePredictionMatches) ? schedulePredictionMatches : [])
+    .filter(m => {
+      const kickoff = parseKickoffDate(m.kickoffUtc);
+      return !Number.isNaN(kickoff.getTime()) && getPacificDateKey(kickoff) === todayPacific;
+    })
+    .sort((a, b) => parseKickoffDate(a.kickoffUtc) - parseKickoffDate(b.kickoffUtc));
+
+  if (todaysMatches.length === 0) {
+    container.innerHTML = '<div class="text-muted">No games scheduled for today (Pacific Time).</div>';
     return;
   }
 
   let html = '';
-  for (const m of todayPredictions) {
-    html += `<div class="today-match mb-3">
-      <div class="today-match-header d-flex flex-wrap justify-content-between gap-2">
-        <div><span class="badge text-bg-secondary me-2">Group ${esc(m.groupName)}</span><strong>${renderTeamName(m.homeTeam)}</strong> vs <strong>${renderTeamName(m.awayTeam)}</strong></div>
-        <div class="small text-muted">Kickoff: ${formatKickoffUtc(m.kickoffUtc)}</div>
-      </div>
-      <div class="table-responsive mt-2">
-        <table class="table table-sm align-middle mb-0">
-          <thead><tr><th>User</th><th>Prediction</th></tr></thead>
-          <tbody>`;
+  for (const m of todaysMatches) {
+    const hasActual = m.actualHomeGoals != null && m.actualAwayGoals != null;
+    const actualBadge = hasActual
+      ? `<span class="badge text-bg-success">${m.actualHomeGoals} - ${m.actualAwayGoals}</span>`
+      : '<span class="badge text-bg-warning">Pending</span>';
+    const actualText = hasActual
+      ? `${m.actualHomeGoals} vs ${m.actualAwayGoals}`
+      : 'Not available yet';
+
+    html += `<article class="card wc-card shadow-sm schedule-card mb-3">
+      <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+          <div>
+            <div class="small text-muted">Game ${m.id} | Group ${esc(m.groupName)}</div>
+            <h2 class="h5 mb-1"><strong>${renderTeamName(m.homeTeam)}</strong> vs <strong>${renderTeamName(m.awayTeam)}</strong></h2>
+            <div class="small text-muted"><i class="bi bi-clock"></i> ${formatPacificDateTime(m.kickoffUtc)}${m.venue ? ` | <i class="bi bi-geo-alt"></i> ${esc(m.venue)}` : ''}</div>
+            <div class="small ${hasActual ? 'text-success' : 'text-muted'}"><i class="bi bi-flag"></i> Actual Result: ${esc(actualText)}</div>
+          </div>
+          <div>${actualBadge}</div>
+        </div>
+
+        <div class="table-responsive mt-2">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>User</th><th>Prediction</th><th>Points</th></tr></thead>
+            <tbody>`;
 
     for (const p of m.predictions || []) {
-      const prediction = (p.homeGoals == null || p.awayGoals == null) ? '<span class="text-muted">Not submitted</span>' : `${p.homeGoals} - ${p.awayGoals}`;
-      html += `<tr><td>${esc(p.userName)}</td><td>${prediction}</td></tr>`;
+      const points = computePredictionPoints(m, p);
+      const prediction = (p.homeGoals == null || p.awayGoals == null)
+        ? '<span class="text-muted">Not submitted</span>'
+        : `${p.homeGoals} - ${p.awayGoals}`;
+      const pointsText = points == null ? '<span class="text-muted">-</span>' : `<strong>${points}</strong>`;
+
+      html += `<tr><td>${esc(p.userName)}</td><td>${prediction}</td><td>${pointsText}</td></tr>`;
     }
 
     html += `</tbody></table>
+        </div>
       </div>
-    </div>`;
+    </article>`;
   }
 
   container.innerHTML = html;
@@ -253,8 +284,28 @@ function renderTodayPredictions() {
 function renderAdmin() {
   if (!user?.isAdmin) return;
   const box = document.getElementById('adminMatches');
+  const sortedMatches = [...matches].sort((a, b) => parseKickoffDate(a.kickoffUtc) - parseKickoffDate(b.kickoffUtc));
+  const cutoff = Date.now() - ONE_DAY_MS;
+  const recentMatches = sortedMatches.filter(m => {
+    const kickoff = parseKickoffDate(m.kickoffUtc);
+    return Number.isNaN(kickoff.getTime()) || kickoff.getTime() >= cutoff;
+  });
+  const pastMatches = sortedMatches.filter(m => {
+    const kickoff = parseKickoffDate(m.kickoffUtc);
+    return !Number.isNaN(kickoff.getTime()) && kickoff.getTime() < cutoff;
+  });
+
+  const visibleMatches = showAllAdminPastMatches ? sortedMatches : recentMatches;
+
   let html = '';
-  for (const m of matches) {
+  if (pastMatches.length > 0) {
+    html += `<div class="mb-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+      <div class="small text-muted">${showAllAdminPastMatches ? `Showing all games including ${pastMatches.length} past game(s).` : `${pastMatches.length} past game(s) hidden (older than 1 day).`}</div>
+      <button class="btn btn-outline-secondary btn-sm" onclick="toggleAdminPastMatches()">${showAllAdminPastMatches ? 'Hide past games' : 'Show all past games'}</button>
+    </div>`;
+  }
+
+  for (const m of visibleMatches) {
     html += `<div class="admin-row row g-2 align-items-center">
       <div class="col-md-1"><strong>#${m.id}</strong><input class="form-control form-control-sm mt-1" id="g_${m.id}" value="${esc(m.groupName)}"></div>
       <div class="col-md-3"><input class="form-control form-control-sm team-input" id="h_${m.id}" value="${esc(m.homeTeam)}"></div>
@@ -266,6 +317,11 @@ function renderAdmin() {
     </div>`;
   }
   box.innerHTML = html;
+}
+
+function toggleAdminPastMatches() {
+  showAllAdminPastMatches = !showAllAdminPastMatches;
+  renderAdmin();
 }
 
 async function saveAdmin(matchId) {
@@ -319,6 +375,21 @@ function formatKickoffUtc(value) {
   return date.toUTCString();
 }
 
+function formatPacificDateTime(value) {
+  const date = parseKickoffDate(value);
+  if (Number.isNaN(date.getTime())) return 'N/A';
+  return date.toLocaleString('en-US', {
+    timeZone: PACIFIC_TIME_ZONE,
+    month: 'numeric',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZoneName: 'short'
+  });
+}
+
 function formatPredictionMatchDateTime(value) {
   const date = parseKickoffDate(value);
   if (Number.isNaN(date.getTime())) return 'N/A';
@@ -339,6 +410,30 @@ function parseKickoffDate(value) {
   const raw = String(value).trim();
   const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
   return new Date(hasTimezone ? raw : `${raw}Z`);
+}
+
+function getPacificDateKey(date) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: PACIFIC_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(date);
+}
+
+function computePredictionPoints(match, prediction) {
+  if (match.actualHomeGoals == null || match.actualAwayGoals == null) return null;
+  if (prediction.homeGoals == null || prediction.awayGoals == null) return 0;
+
+  if (prediction.homeGoals === match.actualHomeGoals && prediction.awayGoals === match.actualAwayGoals) return 3;
+
+  const predictedDiff = prediction.homeGoals - prediction.awayGoals;
+  const actualDiff = match.actualHomeGoals - match.actualAwayGoals;
+  const sameOutcome = (predictedDiff === 0 && actualDiff === 0)
+    || (predictedDiff > 0 && actualDiff > 0)
+    || (predictedDiff < 0 && actualDiff < 0);
+
+  return sameOutcome ? 1 : 0;
 }
 
 function initCountdown() {
