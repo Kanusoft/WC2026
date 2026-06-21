@@ -1,4 +1,8 @@
 let scheduleMatches = [];
+let showPastScheduleMatches = false;
+
+const PACIFIC_TIME_ZONE = 'America/Los_Angeles';
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 const TEAM_FLAG_CODES = {
   argentina: 'ar',
@@ -104,8 +108,37 @@ function renderSchedule() {
     return;
   }
 
+  const sorted = [...scheduleMatches].sort((a, b) => parseKickoffDate(a.kickoffUtc) - parseKickoffDate(b.kickoffUtc));
+  const cutoff = Date.now() - ONE_DAY_MS;
+  const recentMatches = sorted.filter(m => {
+    const kickoff = parseKickoffDate(m.kickoffUtc);
+    return Number.isNaN(kickoff.getTime()) || kickoff.getTime() >= cutoff;
+  });
+  const pastMatches = sorted.filter(m => {
+    const kickoff = parseKickoffDate(m.kickoffUtc);
+    return !Number.isNaN(kickoff.getTime()) && kickoff.getTime() < cutoff;
+  });
+
   let html = '';
-  for (const m of scheduleMatches) {
+  if (!showPastScheduleMatches && pastMatches.length > 0) {
+    html += `<div class="card wc-card shadow-sm schedule-actions-card">
+      <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div class="small text-muted">${pastMatches.length} past game(s) are hidden (older than 1 day).</div>
+        <button class="btn btn-outline-primary btn-sm" onclick="togglePastScheduleMatches()">Show more</button>
+      </div>
+    </div>`;
+  }
+
+  if (showPastScheduleMatches && pastMatches.length > 0) {
+    html += `<div class="card wc-card shadow-sm schedule-actions-card">
+      <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div class="small text-muted">Showing all games, including ${pastMatches.length} past game(s).</div>
+        <button class="btn btn-outline-secondary btn-sm" onclick="togglePastScheduleMatches()">Hide past games</button>
+      </div>
+    </div>`;
+  }
+
+  for (const m of (showPastScheduleMatches ? sorted : recentMatches)) {
     const hasActual = m.actualHomeGoals != null && m.actualAwayGoals != null;
     const actual = (m.actualHomeGoals == null || m.actualAwayGoals == null)
       ? '<span class="badge text-bg-warning">Pending</span>'
@@ -120,7 +153,7 @@ function renderSchedule() {
           <div>
             <div class="small text-muted">Game ${m.id} | Group ${esc(m.groupName)}</div>
             <h2 class="h5 mb-1"><strong>${renderTeamName(m.homeTeam)}</strong> vs <strong>${renderTeamName(m.awayTeam)}</strong></h2>
-            <div class="small text-muted"><i class="bi bi-clock"></i> ${formatLocalDateTime(m.kickoffUtc)}${m.venue ? ` | <i class="bi bi-geo-alt"></i> ${esc(m.venue)}` : ''}</div>
+            <div class="small text-muted"><i class="bi bi-clock"></i> ${formatPacificDateTime(m.kickoffUtc)}${m.venue ? ` | <i class="bi bi-geo-alt"></i> ${esc(m.venue)}` : ''}</div>
             <div class="small ${hasActual ? 'text-success' : 'text-muted'}"><i class="bi bi-flag"></i> Actual Result: ${esc(actualText)}</div>
           </div>
           <div>${actual}</div>
@@ -152,16 +185,23 @@ function renderSchedule() {
   box.innerHTML = html;
 }
 
-function formatLocalDateTime(value) {
+function togglePastScheduleMatches() {
+  showPastScheduleMatches = !showPastScheduleMatches;
+  renderSchedule();
+}
+
+function formatPacificDateTime(value) {
   const date = parseKickoffDate(value);
   if (Number.isNaN(date.getTime())) return 'N/A';
   return date.toLocaleString('en-US', {
+    timeZone: PACIFIC_TIME_ZONE,
     month: 'numeric',
     day: 'numeric',
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
-    hour12: true
+    hour12: true,
+    timeZoneName: 'short'
   });
 }
 
