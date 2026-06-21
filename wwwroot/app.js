@@ -222,11 +222,11 @@ function renderTodayPredictions() {
   const container = document.getElementById('todayPredictions');
   if (!container) return;
 
-  const todayPacific = getPacificDateKey(new Date());
+  const now = new Date();
   const todaysMatches = (Array.isArray(schedulePredictionMatches) ? schedulePredictionMatches : [])
     .filter(m => {
       const kickoff = parseKickoffDate(m.kickoffUtc);
-      return !Number.isNaN(kickoff.getTime()) && getPacificDateKey(kickoff) === todayPacific;
+      return !Number.isNaN(kickoff.getTime()) && isSamePacificCalendarDay(kickoff, now);
     })
     .sort((a, b) => parseKickoffDate(a.kickoffUtc) - parseKickoffDate(b.kickoffUtc));
 
@@ -408,17 +408,37 @@ function parseKickoffDate(value) {
   if (!value) return new Date(NaN);
 
   const raw = String(value).trim();
-  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
-  return new Date(hasTimezone ? raw : `${raw}Z`);
+  if (!raw) return new Date(NaN);
+
+  // Normalize common DB datetime shapes for reliable browser parsing.
+  let normalized = raw.replace(' ', 'T');
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
+
+  if (!hasTimezone) {
+    normalized = `${normalized}Z`;
+  }
+
+  const parsed = new Date(normalized);
+  if (!Number.isNaN(parsed.getTime())) return parsed;
+
+  // Final fallback: if parsing still fails, try forcing ISO separators.
+  return new Date(normalized.replace(' ', 'T'));
 }
 
 function getPacificDateKey(date) {
-  return new Intl.DateTimeFormat('en-CA', {
+  return new Intl.DateTimeFormat('en-US-u-ca-gregory', {
     timeZone: PACIFIC_TIME_ZONE,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit'
-  }).format(date);
+  }).formatToParts(date)
+    .filter(p => p.type === 'year' || p.type === 'month' || p.type === 'day')
+    .map(p => p.value)
+    .join('-');
+}
+
+function isSamePacificCalendarDay(leftDate, rightDate) {
+  return getPacificDateKey(leftDate) === getPacificDateKey(rightDate);
 }
 
 function computePredictionPoints(match, prediction) {
