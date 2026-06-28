@@ -170,7 +170,6 @@ record LoginRequest(string Name, string Pin);
 record PredictionSave(int UserId, int MatchId, int? HomeGoals, int? AwayGoals);
 record MatchUpdate(int AdminUserId, int MatchId, string GroupName, string HomeTeam, string AwayTeam, string? KickoffUtc, string? Venue);
 record ResultUpdate(int AdminUserId, int MatchId, int? ActualHomeGoals, int? ActualAwayGoals);
-record Round32Match(int Id, string HomeTeam, string AwayTeam, string KickoffUtc, string? Venue, string? Location, int? ActualHomeGoals, int? ActualAwayGoals);
 record TodayPrediction(int UserId, string UserName, int? HomeGoals, int? AwayGoals);
 record TodayMatch(int Id, string GroupName, string HomeTeam, string AwayTeam, string KickoffUtc, string? Venue, int? ActualHomeGoals, int? ActualAwayGoals, List<TodayPrediction> Predictions);
 record User(int Id, string Name, string PinHash, bool IsAdmin);
@@ -211,24 +210,6 @@ CREATE TABLE IF NOT EXISTS Predictions(
   AwayGoals INTEGER NULL,
   UpdatedAtUtc TEXT NOT NULL,
   PRIMARY KEY(UserId, MatchId)
-);
-CREATE TABLE IF NOT EXISTS Round32Matches(
-    Id INTEGER PRIMARY KEY,
-    HomeTeam TEXT NOT NULL,
-    AwayTeam TEXT NOT NULL,
-    KickoffUtc TEXT NOT NULL,
-    Venue TEXT NULL,
-    Location TEXT NULL,
-    ActualHomeGoals INTEGER NULL,
-    ActualAwayGoals INTEGER NULL
-);
-CREATE TABLE IF NOT EXISTS Round32Predictions(
-    UserId INTEGER NOT NULL,
-    MatchId INTEGER NOT NULL,
-    HomeGoals INTEGER NULL,
-    AwayGoals INTEGER NULL,
-    UpdatedAtUtc TEXT NOT NULL,
-    PRIMARY KEY(UserId, MatchId)
 );");
 
         var count = ScalarLong(con, "SELECT COUNT(*) FROM Users");
@@ -252,7 +233,7 @@ CREATE TABLE IF NOT EXISTS Round32Predictions(
             SeedMatches(con);
         }
 
-        var round32Count = ScalarLong(con, "SELECT COUNT(*) FROM Round32Matches");
+        var round32Count = ScalarLong(con, "SELECT COUNT(*) FROM Matches WHERE GroupName='R32'");
         if (round32Count == 0)
         {
             SeedRound32Matches(con);
@@ -400,18 +381,17 @@ CREATE TABLE IF NOT EXISTS Round32Predictions(
             ("Colombia", "Ghana", "2026-07-03", "9:30 PM", "Kansas City Stadium", "Kansas City, MO", "Central Standard Time")
         };
 
-        var id = 1;
+        var id = 1001;
         foreach (var f in fixtures)
         {
             using var cmd = con.CreateCommand();
-            cmd.CommandText = @"INSERT INTO Round32Matches(Id, HomeTeam, AwayTeam, KickoffUtc, Venue, Location)
-VALUES($id,$h,$a,$k,$v,$l)";
+            cmd.CommandText = @"INSERT INTO Matches(Id, GroupName, HomeTeam, AwayTeam, KickoffUtc, Venue)
+VALUES($id,'R32',$h,$a,$k,$v)";
             cmd.Parameters.AddWithValue("$id", id++);
             cmd.Parameters.AddWithValue("$h", f.Home);
             cmd.Parameters.AddWithValue("$a", f.Away);
             cmd.Parameters.AddWithValue("$k", ToUtcIsoFromLocalTime(f.Date, f.LocalTime, f.TimeZoneId));
-            cmd.Parameters.AddWithValue("$v", f.Venue);
-            cmd.Parameters.AddWithValue("$l", f.Location);
+            cmd.Parameters.AddWithValue("$v", $"{f.Venue} ({f.Location})");
             cmd.ExecuteNonQuery();
         }
     }
@@ -494,7 +474,7 @@ VALUES($id,$h,$a,$k,$v,$l)";
         var list = new List<object>();
         await using var con = new SqliteConnection(cs); await con.OpenAsync();
         await using var cmd = con.CreateCommand();
-        cmd.CommandText = "SELECT Id, GroupName, HomeTeam, AwayTeam, KickoffUtc, Venue, ActualHomeGoals, ActualAwayGoals FROM Matches ORDER BY Id";
+        cmd.CommandText = "SELECT Id, GroupName, HomeTeam, AwayTeam, KickoffUtc, Venue, ActualHomeGoals, ActualAwayGoals FROM Matches WHERE GroupName <> 'R32' ORDER BY Id";
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync()) list.Add(new {
             Id=r.GetInt32(0), GroupName=r.GetString(1), HomeTeam=r.GetString(2), AwayTeam=r.GetString(3),
@@ -521,12 +501,12 @@ VALUES($id,$h,$a,$k,$v,$l)";
         var list = new List<object>();
         await using var con = new SqliteConnection(cs); await con.OpenAsync();
         await using var cmd = con.CreateCommand();
-        cmd.CommandText = "SELECT Id, HomeTeam, AwayTeam, KickoffUtc, Venue, Location, ActualHomeGoals, ActualAwayGoals FROM Round32Matches ORDER BY KickoffUtc, Id";
+        cmd.CommandText = "SELECT Id, HomeTeam, AwayTeam, KickoffUtc, Venue, ActualHomeGoals, ActualAwayGoals FROM Matches WHERE GroupName='R32' ORDER BY KickoffUtc, Id";
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync()) list.Add(new {
             Id=r.GetInt32(0), HomeTeam=r.GetString(1), AwayTeam=r.GetString(2), KickoffUtc=r.GetString(3),
-            Venue=r.IsDBNull(4)?null:r.GetString(4), Location=r.IsDBNull(5)?null:r.GetString(5),
-            ActualHomeGoals=r.IsDBNull(6)?(int?)null:r.GetInt32(6), ActualAwayGoals=r.IsDBNull(7)?(int?)null:r.GetInt32(7)
+            Venue=r.IsDBNull(4)?null:r.GetString(4), Location=(string?)null,
+            ActualHomeGoals=r.IsDBNull(5)?(int?)null:r.GetInt32(5), ActualAwayGoals=r.IsDBNull(6)?(int?)null:r.GetInt32(6)
         });
         return list;
     }
@@ -536,7 +516,10 @@ VALUES($id,$h,$a,$k,$v,$l)";
         var d = new Dictionary<int, object>();
         await using var con = new SqliteConnection(cs); await con.OpenAsync();
         await using var cmd = con.CreateCommand();
-        cmd.CommandText = "SELECT MatchId, HomeGoals, AwayGoals FROM Round32Predictions WHERE UserId=$u";
+        cmd.CommandText = @"SELECT p.MatchId, p.HomeGoals, p.AwayGoals
+FROM Predictions p
+JOIN Matches m ON m.Id=p.MatchId
+WHERE p.UserId=$u AND m.GroupName='R32'";
         cmd.Parameters.AddWithValue("$u", userId);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync()) d[r.GetInt32(0)] = new { HomeGoals = r.IsDBNull(1)?(int?)null:r.GetInt32(1), AwayGoals = r.IsDBNull(2)?(int?)null:r.GetInt32(2) };
@@ -568,7 +551,7 @@ SELECT
 FROM Matches m
 CROSS JOIN Users u
 LEFT JOIN Predictions p ON p.MatchId = m.Id AND p.UserId = u.Id
-WHERE m.KickoffUtc IS NOT NULL AND date(m.KickoffUtc) = date('now')
+WHERE m.KickoffUtc IS NOT NULL AND date(m.KickoffUtc) = date('now') AND m.GroupName <> 'R32'
 ORDER BY m.KickoffUtc, m.Id, u.Name;";
 
         await using var r = await cmd.ExecuteReaderAsync();
@@ -640,6 +623,7 @@ SELECT
 FROM Matches m
 CROSS JOIN Users u
 LEFT JOIN Predictions p ON p.MatchId = m.Id AND p.UserId = u.Id
+WHERE m.GroupName <> 'R32'
 ORDER BY m.Id, u.Name;";
 
         await using var r = await cmd.ExecuteReaderAsync();
@@ -702,7 +686,7 @@ ON CONFLICT(UserId,MatchId) DO UPDATE SET HomeGoals=$h, AwayGoals=$a, UpdatedAtU
     {
         await using var con = new SqliteConnection(cs); await con.OpenAsync();
         await using var cmd = con.CreateCommand();
-        cmd.CommandText = @"INSERT INTO Round32Predictions(UserId, MatchId, HomeGoals, AwayGoals, UpdatedAtUtc)
+        cmd.CommandText = @"INSERT INTO Predictions(UserId, MatchId, HomeGoals, AwayGoals, UpdatedAtUtc)
 VALUES($u,$m,$h,$a,$t)
 ON CONFLICT(UserId,MatchId) DO UPDATE SET HomeGoals=$h, AwayGoals=$a, UpdatedAtUtc=$t";
         cmd.Parameters.AddWithValue("$u", userId); cmd.Parameters.AddWithValue("$m", matchId);
@@ -747,10 +731,10 @@ CASE
  WHEN m.ActualHomeGoals IS NULL OR m.ActualAwayGoals IS NULL OR p.HomeGoals IS NULL OR p.AwayGoals IS NULL THEN 0
  WHEN p.HomeGoals=m.ActualHomeGoals AND p.AwayGoals=m.ActualAwayGoals THEN 3
  WHEN ((p.HomeGoals-p.AwayGoals)=0 AND (m.ActualHomeGoals-m.ActualAwayGoals)=0)
-   OR ((p.HomeGoals-p.AwayGoals)>0 AND (m.ActualHomeGoals-m.ActualAwayGoals)>0)
-   OR ((p.HomeGoals-p.AwayGoals)<0 AND (m.ActualHomeGoals-m.ActualAwayGoals)<0) THEN 1
+     OR ((p.HomeGoals-p.AwayGoals)>0 AND (m.ActualHomeGoals-m.ActualAwayGoals)>0)
+     OR ((p.HomeGoals-p.AwayGoals)<0 AND (m.ActualHomeGoals-m.ActualAwayGoals)<0) THEN 1
  ELSE 0 END),0) AS Points
-FROM Predictions p JOIN Matches m ON m.Id=p.MatchId WHERE p.UserId=$u";
+FROM Predictions p JOIN Matches m ON m.Id=p.MatchId WHERE p.UserId=$u AND m.GroupName <> 'R32'";
             cmd.Parameters.AddWithValue("$u", u.Id);
             await using var r = await cmd.ExecuteReaderAsync();
             await r.ReadAsync();
@@ -783,7 +767,7 @@ CASE
    OR ((p.HomeGoals-p.AwayGoals)>0 AND (m.ActualHomeGoals-m.ActualAwayGoals)>0)
    OR ((p.HomeGoals-p.AwayGoals)<0 AND (m.ActualHomeGoals-m.ActualAwayGoals)<0) THEN 1
  ELSE 0 END),0) AS Points
-FROM Round32Predictions p JOIN Round32Matches m ON m.Id=p.MatchId WHERE p.UserId=$u";
+FROM Predictions p JOIN Matches m ON m.Id=p.MatchId WHERE p.UserId=$u AND m.GroupName='R32'";
             cmd.Parameters.AddWithValue("$u", u.Id);
             await using var r = await cmd.ExecuteReaderAsync();
             await r.ReadAsync();
@@ -804,6 +788,7 @@ FROM Round32Predictions p JOIN Round32Matches m ON m.Id=p.MatchId WHERE p.UserId
 SELECT m.GroupName, m.HomeTeam, m.AwayTeam, m.KickoffUtc, p.HomeGoals, p.AwayGoals
 FROM Matches m
 LEFT JOIN Predictions p ON p.MatchId = m.Id AND p.UserId = $u
+WHERE m.GroupName <> 'R32'
 ORDER BY m.Id";
         cmd.Parameters.AddWithValue("$u", userId);
         await using var r = await cmd.ExecuteReaderAsync();
