@@ -23,28 +23,29 @@
   </nav>
 
   <main class="container py-4 py-lg-5">
-    <section class="wc-hero mb-4 mb-lg-5">
-      <div class="wc-hero-overlay"></div>
-      <div class="wc-hero-content">
-        <p class="hero-kicker"><i class="bi bi-stars"></i> FIFA WORLD CUP 2026</p>
-        <h1 class="hero-title">Predict Every Match. Climb the Leaderboard.</h1>        
-        <div class="hero-badges">
-          <span><i class="bi bi-trophy-fill"></i> Competition Mode</span>
-          <span><i class="bi bi-graph-up-arrow"></i> Live Scoring</span>
-          <span><i class="bi bi-people-fill"></i> Friends League</span>
+    <section id="loginPanel">
+      <section class="wc-hero mb-4 mb-lg-5">
+        <div class="wc-hero-overlay"></div>
+        <div class="wc-hero-content">
+          <p class="hero-kicker"><i class="bi bi-stars"></i> FIFA WORLD CUP 2026</p>
+          <h1 class="hero-title">Predict Every Match. Climb the Leaderboard.</h1>        
+          <div class="hero-badges">
+            <span><i class="bi bi-trophy-fill"></i> Competition Mode</span>
+            <span><i class="bi bi-graph-up-arrow"></i> Live Scoring</span>
+            <span><i class="bi bi-people-fill"></i> Friends League</span>
+          </div>
+          <div class="wc-countdown" id="heroCountdown" aria-live="polite">
+            <div class="countdown-item"><span id="cdDays">0</span><small>Days</small></div>
+            <div class="countdown-item"><span id="cdHours">0</span><small>Hours</small></div>
+            <div class="countdown-item"><span id="cdMinutes">0</span><small>Minutes</small></div>
+            <div class="countdown-item"><span id="cdSeconds">0</span><small>Seconds</small></div>
+          </div>
+          <p class="countdown-note" id="countdownNote">Countdown to World Cup 2026 kickoff: June 11, 2026</p>
         </div>
-        <div class="wc-countdown" id="heroCountdown" aria-live="polite">
-          <div class="countdown-item"><span id="cdDays">0</span><small>Days</small></div>
-          <div class="countdown-item"><span id="cdHours">0</span><small>Hours</small></div>
-          <div class="countdown-item"><span id="cdMinutes">0</span><small>Minutes</small></div>
-          <div class="countdown-item"><span id="cdSeconds">0</span><small>Seconds</small></div>
-        </div>
-        <p class="countdown-note" id="countdownNote">Countdown to World Cup 2026 kickoff: June 11, 2026</p>
-      </div>
-    </section>
+      </section>
 
-    <section id="loginPanel" class="card wc-card wc-login-card shadow-sm mx-auto" style="max-width:620px">
-      <div class="card-body">
+      <section class="card wc-card wc-login-card shadow-sm mx-auto" style="max-width:620px">
+        <div class="card-body">
         <h2 class="h4 mb-3 d-flex align-items-center gap-2"><i class="bi bi-person-badge"></i> Friend Login</h2>
         <label class="form-label">Name</label>
         <select id="loginName" class="form-select mb-3">
@@ -54,7 +55,8 @@
         <input id="loginPin" type="password" class="form-control mb-3" placeholder="PIN" />
         <button class="btn btn-primary w-100 wc-primary-btn" onclick="login()"><i class="bi bi-box-arrow-in-right"></i> Log in</button>
         <div id="loginError" class="text-danger mt-3"></div>
-      </div>
+        </div>
+      </section>
     </section>
 
     <section id="appPanel" class="d-none wc-app-panel">
@@ -62,6 +64,7 @@
         <h1 class="h3 mb-0 d-flex align-items-center gap-2"><i class="bi bi-globe-americas"></i> Predictions & Leaderboard</h1>
         <div class="d-flex gap-2">
           <button class="btn btn-outline-secondary" onclick="refreshAll()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+          <a class="btn btn-outline-dark" href="/round32.html"><i class="bi bi-diagram-3"></i> Round of 32</a>
           <a id="scheduleLinkBtn" class="btn btn-outline-primary" href="/schedule.html"><i class="bi bi-calendar3"></i> Full Schedule</a>
           <a id="exportCsvBtn" class="btn btn-outline-success" href="#" target="_blank"><i class="bi bi-file-earmark-spreadsheet"></i> Export CSV</a>
           <button class="btn btn-outline-danger" onclick="logout()"><i class="bi bi-box-arrow-right"></i> Log out</button>
