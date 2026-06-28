@@ -1,6 +1,7 @@
 let user = JSON.parse(localStorage.getItem('wcUser') || 'null');
 let round32Matches = [];
 let round32Predictions = {};
+let round32Leaderboard = [];
 
 window.onload = async () => {
   if (!user) {
@@ -22,14 +23,38 @@ window.onload = async () => {
 };
 
 async function refreshRound32() {
-  const [matchData, predictionData] = await Promise.all([
+  const [matchData, predictionData, leaderboardData] = await Promise.all([
     fetch('/api/round32/matches').then(r => r.json()),
-    fetch(`/api/round32/predictions/${user.id}`).then(r => r.json())
+    fetch(`/api/round32/predictions/${user.id}`).then(r => r.json()),
+    fetch('/api/round32/leaderboard').then(r => r.json())
   ]);
 
   round32Matches = Array.isArray(matchData) ? matchData : [];
   round32Predictions = predictionData || {};
+  round32Leaderboard = Array.isArray(leaderboardData) ? leaderboardData : [];
+  renderRound32Leaderboard();
   renderRound32();
+}
+
+function renderRound32Leaderboard() {
+  const box = document.getElementById('round32Leaderboard');
+  if (!box) return;
+
+  if (round32Leaderboard.length === 0) {
+    box.innerHTML = '<div class="text-muted">No Round of 32 leaderboard data yet.</div>';
+    return;
+  }
+
+  let html = '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Rank</th><th>Name</th><th>Predictions</th><th>Points</th></tr></thead><tbody>';
+  round32Leaderboard.forEach((r, i) => {
+    const rank = i + 1;
+    const cls = rank === 1 ? 'leaderboard-gold' : rank === 2 ? 'leaderboard-silver' : rank === 3 ? 'leaderboard-bronze' : '';
+    const icon = rank === 1 ? 'bi-trophy-fill' : rank === 2 ? 'bi-award-fill' : rank === 3 ? 'bi-patch-check-fill' : '';
+    const decoratedName = icon ? `<i class="bi ${icon} me-1"></i>${esc(r.name)}` : esc(r.name);
+    html += `<tr class="${cls}"><td>${rank}</td><td>${decoratedName}</td><td>${r.predictions}</td><td><strong>${r.points}</strong></td></tr>`;
+  });
+
+  box.innerHTML = html + '</tbody></table></div>';
 }
 
 function renderRound32() {
