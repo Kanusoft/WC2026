@@ -75,6 +75,16 @@ app.MapGet("/api/predictions/today", async () => Results.Ok(await Db.GetTodayMat
 
 app.MapGet("/api/predictions/schedule", async () => Results.Ok(await Db.GetScheduleMatchesWithPredictions(connectionString)));
 
+app.MapGet("/api/round32/matches", async () => Results.Ok(await Db.GetRound32Matches(connectionString)));
+
+app.MapGet("/api/round32/predictions/{userId:int}", async (int userId) => Results.Ok(await Db.GetRound32Predictions(connectionString, userId)));
+
+app.MapPost("/api/round32/predictions", async (PredictionSave req) =>
+{
+    await Db.SaveRound32Prediction(connectionString, req.UserId, req.MatchId, req.HomeGoals, req.AwayGoals);
+    return Results.Ok();
+});
+
 bool IsNinosOverrideActive(User? user, DateTimeOffset nowUtc)
 {
     if (user is null) return false;
@@ -158,6 +168,7 @@ record LoginRequest(string Name, string Pin);
 record PredictionSave(int UserId, int MatchId, int? HomeGoals, int? AwayGoals);
 record MatchUpdate(int AdminUserId, int MatchId, string GroupName, string HomeTeam, string AwayTeam, string? KickoffUtc, string? Venue);
 record ResultUpdate(int AdminUserId, int MatchId, int? ActualHomeGoals, int? ActualAwayGoals);
+record Round32Match(int Id, string HomeTeam, string AwayTeam, string KickoffUtc, string? Venue, string? Location, int? ActualHomeGoals, int? ActualAwayGoals);
 record TodayPrediction(int UserId, string UserName, int? HomeGoals, int? AwayGoals);
 record TodayMatch(int Id, string GroupName, string HomeTeam, string AwayTeam, string KickoffUtc, string? Venue, int? ActualHomeGoals, int? ActualAwayGoals, List<TodayPrediction> Predictions);
 record User(int Id, string Name, string PinHash, bool IsAdmin);
@@ -198,6 +209,24 @@ CREATE TABLE IF NOT EXISTS Predictions(
   AwayGoals INTEGER NULL,
   UpdatedAtUtc TEXT NOT NULL,
   PRIMARY KEY(UserId, MatchId)
+);
+CREATE TABLE IF NOT EXISTS Round32Matches(
+    Id INTEGER PRIMARY KEY,
+    HomeTeam TEXT NOT NULL,
+    AwayTeam TEXT NOT NULL,
+    KickoffUtc TEXT NOT NULL,
+    Venue TEXT NULL,
+    Location TEXT NULL,
+    ActualHomeGoals INTEGER NULL,
+    ActualAwayGoals INTEGER NULL
+);
+CREATE TABLE IF NOT EXISTS Round32Predictions(
+    UserId INTEGER NOT NULL,
+    MatchId INTEGER NOT NULL,
+    HomeGoals INTEGER NULL,
+    AwayGoals INTEGER NULL,
+    UpdatedAtUtc TEXT NOT NULL,
+    PRIMARY KEY(UserId, MatchId)
 );");
 
         var count = ScalarLong(con, "SELECT COUNT(*) FROM Users");
@@ -219,6 +248,12 @@ CREATE TABLE IF NOT EXISTS Predictions(
             Exec(con, "DELETE FROM Predictions;");
             Exec(con, "DELETE FROM Matches;");
             SeedMatches(con);
+        }
+
+        var round32Count = ScalarLong(con, "SELECT COUNT(*) FROM Round32Matches");
+        if (round32Count == 0)
+        {
+            SeedRound32Matches(con);
         }
 
         EnsureCriticalKickoffs(con);
@@ -341,6 +376,44 @@ CREATE TABLE IF NOT EXISTS Predictions(
         return ScalarLong(con, "SELECT COUNT(*) FROM Matches WHERE HomeTeam LIKE 'Group % Team %' OR AwayTeam LIKE 'Group % Team %'") > 0;
     }
 
+    static void SeedRound32Matches(SqliteConnection con)
+    {
+        var fixtures = new (string Home, string Away, string Date, string LocalTime, string Venue, string Location, string TimeZoneId)[]
+        {
+            ("South Africa", "Canada", "2026-06-28", "12:00 PM", "SoFi Stadium", "Los Angeles, CA", "Pacific Standard Time"),
+            ("Brazil", "Japan", "2026-06-29", "12:00 PM", "Houston Stadium", "Houston, TX", "Central Standard Time"),
+            ("Germany", "Paraguay", "2026-06-29", "4:30 PM", "Boston Stadium", "Boston, MA", "Eastern Standard Time"),
+            ("Netherlands", "Morocco", "2026-06-29", "9:00 PM", "Estadio Monterrey", "Monterrey, Mexico", "Central Standard Time (Mexico)"),
+            ("Cote d'Ivoire", "Norway", "2026-06-30", "12:00 PM", "Dallas Stadium", "Dallas, TX", "Central Standard Time"),
+            ("France", "Sweden", "2026-06-30", "5:00 PM", "NY/NJ Stadium", "East Rutherford, NJ", "Eastern Standard Time"),
+            ("Mexico", "Ecuador", "2026-06-30", "9:00 PM", "Mexico City Stadium", "Mexico City, Mexico", "Central Standard Time (Mexico)"),
+            ("England", "Congo DR", "2026-07-01", "12:00 PM", "Atlanta Stadium", "Atlanta, GA", "Eastern Standard Time"),
+            ("Belgium", "Senegal", "2026-07-01", "4:00 PM", "Seattle Stadium", "Seattle, WA", "Pacific Standard Time"),
+            ("USA", "Bosnia and Herzegovina", "2026-07-01", "7:00 PM", "San Francisco Bay Area Stadium", "Santa Clara, CA", "Pacific Standard Time"),
+            ("Spain", "Austria", "2026-07-02", "12:00 PM", "SoFi Stadium", "Los Angeles, CA", "Pacific Standard Time"),
+            ("Portugal", "Croatia", "2026-07-02", "7:00 PM", "Toronto Stadium", "Toronto, Canada", "Eastern Standard Time"),
+            ("Switzerland", "Algeria", "2026-07-02", "8:00 PM", "BC Place Vancouver", "Vancouver, Canada", "Pacific Standard Time"),
+            ("Australia", "Egypt", "2026-07-03", "2:00 PM", "Dallas Stadium", "Dallas, TX", "Central Standard Time"),
+            ("Argentina", "Cabo Verde", "2026-07-03", "6:00 PM", "Miami Stadium", "Miami, FL", "Eastern Standard Time"),
+            ("Colombia", "Ghana", "2026-07-03", "9:30 PM", "Kansas City Stadium", "Kansas City, MO", "Central Standard Time")
+        };
+
+        var id = 1;
+        foreach (var f in fixtures)
+        {
+            using var cmd = con.CreateCommand();
+            cmd.CommandText = @"INSERT INTO Round32Matches(Id, HomeTeam, AwayTeam, KickoffUtc, Venue, Location)
+VALUES($id,$h,$a,$k,$v,$l)";
+            cmd.Parameters.AddWithValue("$id", id++);
+            cmd.Parameters.AddWithValue("$h", f.Home);
+            cmd.Parameters.AddWithValue("$a", f.Away);
+            cmd.Parameters.AddWithValue("$k", ToUtcIsoFromLocalTime(f.Date, f.LocalTime, f.TimeZoneId));
+            cmd.Parameters.AddWithValue("$v", f.Venue);
+            cmd.Parameters.AddWithValue("$l", f.Location);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
     static string ToUtcIsoFromEt(string date, string etTime)
     {
         var local = DateTime.ParseExact($"{date} {etTime}", "yyyy-MM-dd HH:mm", null);
@@ -355,6 +428,33 @@ CREATE TABLE IF NOT EXISTS Predictions(
         }
         var utc = TimeZoneInfo.ConvertTimeToUtc(local, eastern);
         return utc.ToString("O");
+    }
+
+    static string ToUtcIsoFromLocalTime(string date, string localTime, string timeZoneId)
+    {
+        var local = DateTime.ParseExact($"{date} {localTime}", "yyyy-MM-dd h:mm tt", CultureInfo.InvariantCulture);
+        var tz = ResolveTimeZone(timeZoneId);
+        var utc = TimeZoneInfo.ConvertTimeToUtc(local, tz);
+        return utc.ToString("O");
+    }
+
+    static TimeZoneInfo ResolveTimeZone(string id)
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(id);
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return id switch
+            {
+                "Pacific Standard Time" => TimeZoneInfo.FindSystemTimeZoneById("America/Los_Angeles"),
+                "Central Standard Time" => TimeZoneInfo.FindSystemTimeZoneById("America/Chicago"),
+                "Eastern Standard Time" => TimeZoneInfo.FindSystemTimeZoneById("America/New_York"),
+                "Central Standard Time (Mexico)" => TimeZoneInfo.FindSystemTimeZoneById("America/Mexico_City"),
+                _ => TimeZoneInfo.Utc
+            };
+        }
     }
 
     public static async Task<User?> GetUserByName(string cs, string name)
@@ -408,6 +508,33 @@ CREATE TABLE IF NOT EXISTS Predictions(
         await using var con = new SqliteConnection(cs); await con.OpenAsync();
         await using var cmd = con.CreateCommand();
         cmd.CommandText = "SELECT MatchId, HomeGoals, AwayGoals FROM Predictions WHERE UserId=$u";
+        cmd.Parameters.AddWithValue("$u", userId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) d[r.GetInt32(0)] = new { HomeGoals = r.IsDBNull(1)?(int?)null:r.GetInt32(1), AwayGoals = r.IsDBNull(2)?(int?)null:r.GetInt32(2) };
+        return d;
+    }
+
+    public static async Task<List<object>> GetRound32Matches(string cs)
+    {
+        var list = new List<object>();
+        await using var con = new SqliteConnection(cs); await con.OpenAsync();
+        await using var cmd = con.CreateCommand();
+        cmd.CommandText = "SELECT Id, HomeTeam, AwayTeam, KickoffUtc, Venue, Location, ActualHomeGoals, ActualAwayGoals FROM Round32Matches ORDER BY KickoffUtc, Id";
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) list.Add(new {
+            Id=r.GetInt32(0), HomeTeam=r.GetString(1), AwayTeam=r.GetString(2), KickoffUtc=r.GetString(3),
+            Venue=r.IsDBNull(4)?null:r.GetString(4), Location=r.IsDBNull(5)?null:r.GetString(5),
+            ActualHomeGoals=r.IsDBNull(6)?(int?)null:r.GetInt32(6), ActualAwayGoals=r.IsDBNull(7)?(int?)null:r.GetInt32(7)
+        });
+        return list;
+    }
+
+    public static async Task<Dictionary<int, object>> GetRound32Predictions(string cs, int userId)
+    {
+        var d = new Dictionary<int, object>();
+        await using var con = new SqliteConnection(cs); await con.OpenAsync();
+        await using var cmd = con.CreateCommand();
+        cmd.CommandText = "SELECT MatchId, HomeGoals, AwayGoals FROM Round32Predictions WHERE UserId=$u";
         cmd.Parameters.AddWithValue("$u", userId);
         await using var r = await cmd.ExecuteReaderAsync();
         while (await r.ReadAsync()) d[r.GetInt32(0)] = new { HomeGoals = r.IsDBNull(1)?(int?)null:r.GetInt32(1), AwayGoals = r.IsDBNull(2)?(int?)null:r.GetInt32(2) };
@@ -562,6 +689,18 @@ ORDER BY m.Id, u.Name;";
         await using var con = new SqliteConnection(cs); await con.OpenAsync();
         await using var cmd = con.CreateCommand();
         cmd.CommandText = @"INSERT INTO Predictions(UserId, MatchId, HomeGoals, AwayGoals, UpdatedAtUtc)
+VALUES($u,$m,$h,$a,$t)
+ON CONFLICT(UserId,MatchId) DO UPDATE SET HomeGoals=$h, AwayGoals=$a, UpdatedAtUtc=$t";
+        cmd.Parameters.AddWithValue("$u", userId); cmd.Parameters.AddWithValue("$m", matchId);
+        cmd.Parameters.AddWithValue("$h", (object?)hg ?? DBNull.Value); cmd.Parameters.AddWithValue("$a", (object?)ag ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$t", DateTime.UtcNow.ToString("O")); await cmd.ExecuteNonQueryAsync();
+    }
+
+    public static async Task SaveRound32Prediction(string cs, int userId, int matchId, int? hg, int? ag)
+    {
+        await using var con = new SqliteConnection(cs); await con.OpenAsync();
+        await using var cmd = con.CreateCommand();
+        cmd.CommandText = @"INSERT INTO Round32Predictions(UserId, MatchId, HomeGoals, AwayGoals, UpdatedAtUtc)
 VALUES($u,$m,$h,$a,$t)
 ON CONFLICT(UserId,MatchId) DO UPDATE SET HomeGoals=$h, AwayGoals=$a, UpdatedAtUtc=$t";
         cmd.Parameters.AddWithValue("$u", userId); cmd.Parameters.AddWithValue("$m", matchId);
