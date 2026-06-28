@@ -85,6 +85,8 @@ app.MapPost("/api/round32/predictions", async (PredictionSave req) =>
     return Results.Ok();
 });
 
+app.MapGet("/api/round32/leaderboard", async () => Results.Ok(await Db.GetRound32Leaderboard(connectionString)));
+
 bool IsNinosOverrideActive(User? user, DateTimeOffset nowUtc)
 {
     if (user is null) return false;
@@ -754,6 +756,40 @@ FROM Predictions p JOIN Matches m ON m.Id=p.MatchId WHERE p.UserId=$u";
             await r.ReadAsync();
             board.Add(new { u.Id, u.Name, Predictions = r.GetInt32(0), Points = r.GetInt32(1) });
         }
+        return board.OrderByDescending(x => (int)x.GetType().GetProperty("Points")!.GetValue(x)!).ToList<object>();
+    }
+
+    public static async Task<List<object>> GetRound32Leaderboard(string cs)
+    {
+        var users = new List<(int Id, string Name)>();
+        await using var con = new SqliteConnection(cs); await con.OpenAsync();
+        await using (var cmd = con.CreateCommand())
+        {
+            cmd.CommandText = "SELECT Id, Name FROM Users ORDER BY Id";
+            await using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync()) users.Add((r.GetInt32(0), r.GetString(1)));
+        }
+
+        var board = new List<object>();
+        foreach (var u in users)
+        {
+            await using var cmd = con.CreateCommand();
+            cmd.CommandText = @"
+SELECT COUNT(p.MatchId), COALESCE(SUM(
+CASE
+ WHEN m.ActualHomeGoals IS NULL OR m.ActualAwayGoals IS NULL OR p.HomeGoals IS NULL OR p.AwayGoals IS NULL THEN 0
+ WHEN p.HomeGoals=m.ActualHomeGoals AND p.AwayGoals=m.ActualAwayGoals THEN 3
+ WHEN ((p.HomeGoals-p.AwayGoals)=0 AND (m.ActualHomeGoals-m.ActualAwayGoals)=0)
+   OR ((p.HomeGoals-p.AwayGoals)>0 AND (m.ActualHomeGoals-m.ActualAwayGoals)>0)
+   OR ((p.HomeGoals-p.AwayGoals)<0 AND (m.ActualHomeGoals-m.ActualAwayGoals)<0) THEN 1
+ ELSE 0 END),0) AS Points
+FROM Round32Predictions p JOIN Round32Matches m ON m.Id=p.MatchId WHERE p.UserId=$u";
+            cmd.Parameters.AddWithValue("$u", u.Id);
+            await using var r = await cmd.ExecuteReaderAsync();
+            await r.ReadAsync();
+            board.Add(new { u.Id, u.Name, Predictions = r.GetInt32(0), Points = r.GetInt32(1) });
+        }
+
         return board.OrderByDescending(x => (int)x.GetType().GetProperty("Points")!.GetValue(x)!).ToList<object>();
     }
 
