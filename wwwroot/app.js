@@ -1,5 +1,6 @@
 let user = JSON.parse(localStorage.getItem('wcUser') || 'null');
 let matches = [];
+let round32Matches = [];
 let predictions = {};
 let schedulePredictionMatches = [];
 let predictionsLocked = false;
@@ -107,14 +108,16 @@ async function showApp() {
 }
 
 async function refreshAll() {
-  const [matchData, predictionData, predictionStatusData, schedulePredictionData] = await Promise.all([
+  const [matchData, round32MatchData, predictionData, predictionStatusData, schedulePredictionData] = await Promise.all([
     fetch('/api/matches').then(r => r.json()),
+    fetch('/api/round32/matches').then(r => r.json()),
     fetch(`/api/predictions/${user.id}`).then(r => r.json()),
     fetch(`/api/predictions/status?userId=${user.id}`).then(r => r.json()),
     fetch('/api/predictions/schedule').then(r => r.json())
   ]);
 
   matches = matchData;
+  round32Matches = round32MatchData;
   predictions = predictionData;
   schedulePredictionMatches = schedulePredictionData;
   predictionsLocked = Boolean(predictionStatusData?.isLocked);
@@ -293,6 +296,8 @@ function renderAdmin() {
   if (!user?.isAdmin) return;
   const box = document.getElementById('adminMatches');
   const sortedMatches = [...matches].sort((a, b) => parseKickoffDate(a.kickoffUtc) - parseKickoffDate(b.kickoffUtc));
+  const sortedRound32Matches = [...(Array.isArray(round32Matches) ? round32Matches : [])]
+    .sort((a, b) => parseKickoffDate(a.kickoffUtc) - parseKickoffDate(b.kickoffUtc));
   const cutoff = Date.now() - ONE_DAY_MS;
   const recentMatches = sortedMatches.filter(m => {
     const kickoff = parseKickoffDate(m.kickoffUtc);
@@ -324,6 +329,26 @@ function renderAdmin() {
       <div class="col-md-1 d-grid"><button class="btn btn-sm btn-dark" onclick="saveAdmin(${m.id})">Save</button></div>
     </div>`;
   }
+
+  if (sortedRound32Matches.length > 0) {
+    html += `<div class="mt-4 mb-2">
+      <h3 class="h6 mb-1 d-flex align-items-center gap-2"><i class="bi bi-diagram-3"></i> Round of 32</h3>
+      <div class="small text-muted">Update Round of 32 teams and actual results from here.</div>
+    </div>`;
+
+    for (const m of sortedRound32Matches) {
+      html += `<div class="admin-row row g-2 align-items-center">
+      <div class="col-md-1"><strong>#${m.id}</strong><input class="form-control form-control-sm mt-1" id="g_${m.id}" value="${esc(m.groupName || 'R32')}"></div>
+      <div class="col-md-3"><input class="form-control form-control-sm team-input" id="h_${m.id}" value="${esc(m.homeTeam)}"></div>
+      <div class="col-md-3"><input class="form-control form-control-sm team-input" id="a_${m.id}" value="${esc(m.awayTeam)}"></div>
+      <div class="col-md-2"><input class="form-control form-control-sm" id="v_${m.id}" placeholder="Venue" value="${esc(m.venue || '')}"></div>
+      <div class="col-md-1"><input type="number" min="0" class="form-control form-control-sm" id="ah_${m.id}" value="${m.actualHomeGoals ?? ''}" placeholder="H"></div>
+      <div class="col-md-1"><input type="number" min="0" class="form-control form-control-sm" id="aa_${m.id}" value="${m.actualAwayGoals ?? ''}" placeholder="A"></div>
+      <div class="col-md-1 d-grid"><button class="btn btn-sm btn-dark" onclick="saveAdmin(${m.id})">Save</button></div>
+    </div>`;
+    }
+  }
+
   box.innerHTML = html;
 }
 
@@ -333,7 +358,8 @@ function toggleAdminPastMatches() {
 }
 
 async function saveAdmin(matchId) {
-  const currentMatch = matches.find(m => m.id === matchId);
+  const allMatches = [...matches, ...(Array.isArray(round32Matches) ? round32Matches : [])];
+  const currentMatch = allMatches.find(m => m.id === matchId);
   await fetch('/api/admin/matches', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
     adminUserId:user.id, matchId, groupName:document.getElementById(`g_${matchId}`).value, homeTeam:document.getElementById(`h_${matchId}`).value,
     awayTeam:document.getElementById(`a_${matchId}`).value, kickoffUtc:currentMatch?.kickoffUtc ?? null, venue:document.getElementById(`v_${matchId}`).value
