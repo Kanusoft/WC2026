@@ -34,6 +34,11 @@ var scheduleOpenUtc = DateTimeOffset.Parse(
     CultureInfo.InvariantCulture,
     DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
 
+var round32PredictionLockUtc = DateTimeOffset.Parse(
+    "2026-06-30T06:59:59Z",
+    CultureInfo.InvariantCulture,
+    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+
 app.Use(async (context, next) =>
 {
     var path = context.Request.Path.Value ?? string.Empty;
@@ -76,11 +81,25 @@ app.MapGet("/api/predictions/today", async () => Results.Ok(await Db.GetTodayMat
 app.MapGet("/api/predictions/schedule", async () => Results.Ok(await Db.GetScheduleMatchesWithPredictions(connectionString)));
 
 app.MapGet("/api/round32/matches", async () => Results.Ok(await Db.GetRound32Matches(connectionString)));
+app.MapGet("/api/round32/schedule", async () => Results.Ok(await Db.GetRound32ScheduleWithPredictions(connectionString)));
+app.MapGet("/api/round32/status", () => Results.Ok(new
+{
+    IsLocked = DateTimeOffset.UtcNow > round32PredictionLockUtc,
+    LockAtUtc = round32PredictionLockUtc.ToString("O")
+}));
 
 app.MapGet("/api/round32/predictions/{userId:int}", async (int userId) => Results.Ok(await Db.GetRound32Predictions(connectionString, userId)));
 
 app.MapPost("/api/round32/predictions", async (PredictionSave req) =>
 {
+    if (DateTimeOffset.UtcNow > round32PredictionLockUtc)
+    {
+        return Results.Json(new
+        {
+            Message = "Round of 32 predictions are locked after 6/29/2026 Pacific."
+        }, statusCode: StatusCodes.Status403Forbidden);
+    }
+
     await Db.SaveRound32Prediction(connectionString, req.UserId, req.MatchId, req.HomeGoals, req.AwayGoals);
     return Results.Ok();
 });
@@ -509,6 +528,78 @@ VALUES($id,'R32',$h,$a,$k,$v)";
             ActualHomeGoals=r.IsDBNull(5)?(int?)null:r.GetInt32(5), ActualAwayGoals=r.IsDBNull(6)?(int?)null:r.GetInt32(6)
         });
         return list;
+    }
+
+    public static async Task<List<TodayMatch>> GetRound32ScheduleWithPredictions(string cs)
+    {
+        var matchOrder = new List<int>();
+        var matchMeta = new Dictionary<int, (string GroupName, string HomeTeam, string AwayTeam, string KickoffUtc, string? Venue, int? ActualHomeGoals, int? ActualAwayGoals)>();
+        var matchPredictions = new Dictionary<int, List<TodayPrediction>>();
+
+        await using var con = new SqliteConnection(cs); await con.OpenAsync();
+        await using var cmd = con.CreateCommand();
+        cmd.CommandText = @"
+SELECT
+  m.Id,
+  m.GroupName,
+  m.HomeTeam,
+  m.AwayTeam,
+  m.KickoffUtc,
+  m.Venue,
+  m.ActualHomeGoals,
+  m.ActualAwayGoals,
+  u.Id,
+  u.Name,
+  p.HomeGoals,
+  p.AwayGoals
+FROM Matches m
+CROSS JOIN Users u
+LEFT JOIN Predictions p ON p.MatchId = m.Id AND p.UserId = u.Id
+WHERE m.GroupName = 'R32'
+ORDER BY m.KickoffUtc, m.Id, u.Name;";
+
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+        {
+            var matchId = r.GetInt32(0);
+            if (!matchMeta.ContainsKey(matchId))
+            {
+                matchOrder.Add(matchId);
+                matchMeta[matchId] = (
+                    r.GetString(1),
+                    r.GetString(2),
+                    r.GetString(3),
+                    r.IsDBNull(4) ? "" : r.GetString(4),
+                    r.IsDBNull(5) ? null : r.GetString(5),
+                    r.IsDBNull(6) ? (int?)null : r.GetInt32(6),
+                    r.IsDBNull(7) ? (int?)null : r.GetInt32(7));
+                matchPredictions[matchId] = new List<TodayPrediction>();
+            }
+
+            matchPredictions[matchId].Add(new TodayPrediction(
+                r.GetInt32(8),
+                r.GetString(9),
+                r.IsDBNull(10) ? (int?)null : r.GetInt32(10),
+                r.IsDBNull(11) ? (int?)null : r.GetInt32(11)));
+        }
+
+        var result = new List<TodayMatch>();
+        foreach (var matchId in matchOrder)
+        {
+            var meta = matchMeta[matchId];
+            result.Add(new TodayMatch(
+                matchId,
+                meta.GroupName,
+                meta.HomeTeam,
+                meta.AwayTeam,
+                meta.KickoffUtc,
+                meta.Venue,
+                meta.ActualHomeGoals,
+                meta.ActualAwayGoals,
+                matchPredictions[matchId]));
+        }
+
+        return result;
     }
 
     public static async Task<Dictionary<int, object>> GetRound32Predictions(string cs, int userId)
