@@ -40,10 +40,19 @@ async function refreshRound32() {
   round32ScheduleMatches = Array.isArray(scheduleData) ? scheduleData : [];
   round32Locked = Boolean(statusData?.isLocked);
   round32LockAtUtc = statusData?.lockAtUtc || null;
+  setRound32ScheduleVisibility();
   renderRound32LockBanner();
   renderRound32Leaderboard();
-  renderRound32ScheduleCards();
+  if (round32Locked) {
+    renderRound32ScheduleCards();
+  }
   renderRound32();
+}
+
+function setRound32ScheduleVisibility() {
+  const section = document.getElementById('round32ScheduleSection');
+  if (!section) return;
+  section.classList.toggle('d-none', !round32Locked);
 }
 
 function renderRound32LockBanner() {
@@ -194,7 +203,9 @@ async function saveRound32Prediction(matchId) {
   if (!response.ok) {
     if (response.status === 403) {
       round32Locked = true;
+      setRound32ScheduleVisibility();
       renderRound32LockBanner();
+      renderRound32ScheduleCards();
       renderRound32();
     }
     return;
